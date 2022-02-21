@@ -85,7 +85,7 @@ if (len(sys.argv)<2):
     if (os.path.exists('soc_example.ini')):
         print("A sample inifile already exists in soc_example.ini")
     else:
-        WriteSampleInit('soc_example.ini')
+        WriteSampleIni('soc_example.ini')
         print("A sample inifile has been written to soc_example.ini")
     sys.exit()
 USER = User(sys.argv[1])
@@ -2855,7 +2855,7 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
             if (min(tmp)<0.001):                      # -FREQ in savetau_freq => save column density
                 save_tau, save_colden = 0, 1
             tmp =   abs(asarray(USER.savetau_freq))
-            if ((first_freq)&(min(tmp)<0.001)):
+            if ((first_freq)&(min(asarray(tmp))<0.001)):
                 save_tau     = 0     # first frequency, if 0.0 in savetau_freq => save column density
                 save_colden  = 1
 
