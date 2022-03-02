@@ -2954,7 +2954,8 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
     if (using_fits):
         if (not(singles)):
             for idir in range(NDIR):
-                filename =  "map_dir_%02d.fits" % idir
+                # filename =  "map_dir_%02d.fits" % idir
+                filename =  "%s_dir_%02d.fits" % (USER.FITS_PREFIX, idir)
                 fpmap[idir].writeto(filename, overwrite=True)
     else:
         for idir in range(NDIR):  fpmap[idir].close()

@@ -210,6 +210,7 @@ class User:
 
         self.MAP_INTERPOLATION = 0   # if normal mapmaking (not healpix) uses interpolation
         self.FITS          = 0       # 2021-12-09 changed to default 1... and back to 0
+        self.FITS_PREFIX   = 'map'   # 2022-03-02
         self.FITS_RA       = 0.0     # optional  FITS centre coordinates in degrees
         self.FITS_DE       = 0.0
         
@@ -276,7 +277,8 @@ class User:
                 if (len(s)>=3):  # set also centre coordinates
                     self.FITS_RA = float(s[1]) 
                     self.FITS_DE = float(s[2])
-                
+                    if (len(s)>=4):
+                        self.FITS_PREFIX = s[3]
                 
                 
                 
