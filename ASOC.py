@@ -158,7 +158,7 @@ if (len(sys.argv)>2): # command line overrides devices defined in the ini file
         
 # Open file containing diffuse emission per cell
 DIFFUSERAD        =  mmap_diffuserad(USER, CELLS)   # memory mapped => do not scale the array itself with K_diffuse
-DEVICES           =  len(USER.DEVICES)
+DEVICES           =  1   # !!
 KDEV              =  1.0/DEVICES
 KDEV              =  1.0  # here only one device !!
 
@@ -349,7 +349,15 @@ source  =  INSTALL_DIR+"/kernel_ASOC.c"
 # NOTE -- kernel_SOC now uses Healpix for pointsource and background simulation
 #         and this requires NSIDE to be defined
 #         The mapping kernels use different NSIDE and therefore their ARGS is different !!
-context, commands =  opencl_init(USER)
+if (USER.sDEVICE==''):
+    # keyword platform =>  USER.PLATFORM, USER.IDEVICE
+    # (1) one can use keyword devices  to set USER.DEVICES = select between CPU and GPU
+    # (2) one can use keyword platform to select platform and optionally the device on that platform
+    #                 == USER.PLATFORM and USER.IDEVICE
+    context, commands =  opencl_init(USER, 1)
+else:
+    # one uses keyword sdevice to specify a string in the name of the device
+    context, commands =  opencl_init_s(USER, 1)
 # fixed NSIDE=128 for the PS and BG simulations?
 print("get_program ...")
 program           =  get_program(context, commands, source, ARGS + " -D NSIDE=%d" % 128)
@@ -380,6 +388,10 @@ ROI_LIM_buf  = None
 NEED_EMIT_BUF = (USER.LOAD_TEMPERATURE) | (DFPAC>0) | (CLPAC>0) | (not(USER.NOSOLVE)) \
               | ('SUBITERATIONS' in USER.KEYS) | (not(USER.NOMAP)) | (USER.POLMAP>0)
 # print("NEED_EMIT_BUF = %d" % NEED_EMIT_BUF)
+
+
+
+print("context", context)
 
 for ID in range(DEVICES):
     LCELLS_buf.append( cl.Buffer(context[ID], mf.READ_ONLY,  LCELLS.nbytes))
@@ -2937,7 +2949,7 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
                     fpmap[idir][0].data[IFREQ, :, :] = MAP
                 else:
                     FFF[0].data =  MAP
-                    FFF.writeto('map_%s%s.fits' % (ums, suffix), overwrite=True)
+                    FFF.writeto('%s_%s%s.fits' % (USER.FITS_PREFIX, ums, suffix), overwrite=True)
             else:
                 asarray(MAP,float32).tofile(fpmap[idir])       # directly all the selected frequencies
             if (save_colden>0):

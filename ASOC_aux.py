@@ -184,6 +184,7 @@ class User:
         self.KEYS         = {}
         self.PLATFORM     = -1       # number of the OpenCL platform, <0 = figure it out
         self.IDEVICE      = 0        # index of the device within the selected platform (index over CPUs or GPUs only)
+        self.sDEVICE      = ''       # specify device using string
         self.K_DIFFUSE    = 1.0      # scaling of the input diffuse radiation field
         self.SINGLE_ABU   = 0
         self.OPT_IS_HALF  = 0
@@ -285,7 +286,11 @@ class User:
             if (len(s)<2): continue
             # keywords with a single argument
             key, a  =  s[0], s[1]
-            if (key.find('device')==0):      self.DEVICES           = a
+            if (key.find('device')==0):
+                self.DEVICES = a.lower()   # first argument c, g or cg
+                if (len(s)>2):
+                    self.sDEVICE = s[2]
+                
             if (key.find('fission')==0):     self.FISSION           = int(a)
             if (key.find('sourcemap')==0):   self.file_sourcemap    = a
             if (key.find('tempera')==0):     self.file_temperature  = a
@@ -298,7 +303,7 @@ class User:
             if (key.find('mapint')==0):      self.MAP_INTERPOLATION = int(a)
             if (key.find('polstat')==0):     self.POLSTAT           = int(a)
             
-            if (key.find('platform')==0):    
+            if (key.find('platform')==0):  #  platform  #platform [ #device ]
                 self.PLATFORM   = int(a)
                 if (len(s)>2):
                     try:
@@ -1122,49 +1127,115 @@ def opencl_init(USER, verbose=False):
         platform  =  index of selected OpenCL platform (default=0)
     Return:
         context   =  array of compute contexts, one per device
-        commands  =  array of command queues, one per device
+        queue     =  array of command queues, one per device
+    Note:
+        use USER.PLATFORM (if given) and USER.DEVICES
     """
-    platform         = []
-    devi             = []
-    context          = []  # for each device
-    commands         = []
+    platform, device, context, queue = [], [], [], []
     try_platforms    = arange(5)
     if (USER.PLATFORM>=0): try_platforms = [USER.PLATFORM,]
-    for dc in USER.DEVICES:
-        plat, devi, cont, queue = None, None, None, None
-        for iplatform in try_platforms:
-            if (verbose):  print("DEVICE %s, TRY PLATFORM %d" % (dc, iplatform))
-            try:
-                platform  = cl.get_platforms()[iplatform]
-                if (dc=='g'):
-                    devi  = [ platform.get_devices(cl.device_type.GPU)[USER.IDEVICE] ]
-                else:
-                    devi  = [ platform.get_devices(cl.device_type.CPU)[USER.IDEVICE] ]
-                ###
-                if (USER.FISSION>0):
-                    print("FISSION %d !" % USER.FISSION)
-                    print(devi[0])
-                    dpp   =  cl.device_partition_property
-                    devi  =  [devi[0].create_sub_devices( [dpp.EQUALLY, USER.FISSION] )[0],]
-                    print('  --> ')
-                    print(devi[0])                    
-                ###
-                cont  = cl.Context(devi)
-                queue = cl.CommandQueue(cont)
-                if (verbose): print("context ", cont)
-                break
-            except:
-                pass
-        # for iplatform
-        context.append(cont)
-        commands.append(queue)
-    # --- end creating kernels
+    if (verbose):
+        print("--------------------------------------------------------------------------------")
+        print("opencl_init,  try platforms", try_platforms)
+    for iplatform in try_platforms:
+        try:
+            platform  = cl.get_platforms()[iplatform]
+            print(platform)
+            if ('g' in USER.DEVICES):
+                try:
+                    device = [platform.get_devices(cl.device_type.GPU)[USER.IDEVICE],]
+                except:
+                    device = []
+            if (('c' in USER.DEVICES)&(len(device)<1)):
+                try:
+                    device = [platform.get_devices(cl.device_type.CPU)[USER.IDEVICE],]
+                except:
+                    device = []
+                    continue
+            if (USER.FISSION>0):
+                print("FISSION %d !" % USER.FISSION)
+                dpp    =  cl.device_partition_property
+                device =  device.create_sub_devices( [dpp.EQUALLY, USER.FISSION] )[0]
+                print('  --> ')
+                print(device)
+            if (len(device)>0): break
+        except:
+            pass
+    try:
+        context = cl.Context(device)
+        queue   = cl.CommandQueue(context)
+    except:
+        print("Failed to get opencl device")
+        sys.exit()
     if (verbose):
         print("opencl_init:")
         print(" platform ", platform)
-        print(" device   ", devi)
+        print(" device   ", device)
         print(" context  ", context)
-    return context, commands
+        print(" queue    ", queue)
+        print("--------------------------------------------------------------------------------")
+    return [context,], [queue,]
+
+
+
+
+def opencl_init_s(USER, verbose=False):
+    """
+    Initialise OpenCL environment.
+    Input:
+        USER      =  User object, including USER.DEVICES (contains 'c' for CPU, 'g' for GPU) and USER.sDEVICE
+                     string to specify the selected device
+        platform  =  index of selected OpenCL platform (default=0)
+    Return:
+        context   =  array of compute contexts, one per device
+        queue     =  array of command queues, one per device
+    Note:
+        When USER.sDEVICE is not '' (this routine is used), 
+        selection is made based on USER.PLATFORM (if specified), USER.DEVICES, and USER.sDEVICE
+    """
+    try_platforms    = arange(5)     # check all platforms, checking for the device with the correct string
+    if (USER.PLATFORM>=0): try_platforms = [USER.PLATFORM,] # or only platforms specified by the user
+    platform, device, context, queue = None, [], None, None
+    for iplatform in try_platforms:
+        # print("Try platform %d, with USER.DEVICES = " % iplatform, USER.DEVICES)
+        try:
+            platform  =  cl.get_platforms()[iplatform]
+        except:
+            continue 
+        if ('g' in USER.DEVICES):  # try all GPUs
+            devices   =  platform.get_devices(cl.device_type.GPU)
+            for idevice in range(len(devices)):
+                print("---------------- GPU device name = ", devices[idevice].name)
+                if (USER.sDEVICE in devices[idevice].name):
+                    device = [ devices[idevice] ]
+                    break
+        if (len(device)>0): break
+        if ('c' in USER.DEVICES): # try all CPUs
+            devices   = platform.get_devices(cl.device_type.CPU)
+            for idevice in range(len(devices)):
+                print("---------------- CPU device name =  ", devices[idevice].name)
+                if (USER.sDEVICE in devices[idevice].name):
+                    device = [ devices[idevice] ]
+                    break
+        if (len(device)>0): break
+    if (len(device)<1):
+        print("InitCL_string: could not find any device matching string: %s" % USER.sDEVICE)
+        sys.exit()
+    print("Found device: ", device)
+    try:
+        context   =  cl.Context(device)
+        queue     =  cl.CommandQueue(context)
+    except:
+        print("Failed to create OpenCL context and quee for device: ", device[0])
+        sys.exit()                                       
+    # --- end creating kernels
+    if (verbose):
+        print("opencl_init_s:")
+        print(" platform ", platform)
+        print(" device   ", device)
+        print(" context  ", context)
+        print(" queue    ", queue)
+    return [context,], [queue,]
 
 
 
