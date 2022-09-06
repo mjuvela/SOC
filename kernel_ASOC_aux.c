@@ -1,5 +1,6 @@
 #define HG_TEST 0
 
+
 #define TWOPI     6.28318531f
 #define TAULIM    5.0e-4f
 #define PIHALF    1.5707963268f
