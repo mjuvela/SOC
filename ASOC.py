@@ -2813,22 +2813,25 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
     commands[0].finish()                
     fpmap = []                   # file handles for NDIR maps
     using_fits =  False
-    singles    =  len(USER.SINGLE_MAP_FREQ)>0    # single => no spectral cube, individual FITS images per frequency
-    FFF = MakeFits(USER.FITS_RA, USER.FITS_DE, USER.GL*USER.MAP_DX/[1000.0, USER.DISTANCE][USER.DISTANCE>0.0], USER.NPIX['x'], USER.NPIX['y'], [], sys_req='fk5')
+    """
+    if (FITS & mapum):
+        write separate FITS file for each direction and wavelength
+    else:
+        write binary file
+    """
+    singles    =  len(USER.SINGLE_MAP_FREQ)
+    using_fits = (USER.FITS>0) & (singles>0)    
     if (USER.NPIX['y']<=0):      # only one Healpix map
         fpmap.append( open("map.healpix", "wb") )
+        using_fits = False
     else:                        # flat maps
-        if ((USER.FITS>0)&(NDIR==1)):
-            using_fits = True
-            if (not(singles)): # one FITS file for all frequencies
-                print("*** NOT SINGLES ***")
-                for idir in range(len(USER.OBS_THETA)):
-                    fpmap.append( MakeFits(USER.FITS_RA, USER.FITS_DE, USER.GL*USER.MAP_DX/[1000.0, USER.DISTANCE][USER.DISTANCE>0.0], USER.NPIX['x'], USER.NPIX['y'], FFREQ, sys_req='fk5') )
+        if (using_fits):         # individual FITS files  fpmap[NDIR*singles]
+            fpmap = []
         else:
             for idir in range(len(USER.OBS_THETA)):
                 filename =  "map_dir_%02d.bin" % idir
                 fpmap.append( open(filename, "wb") )
-                asarray([USER.NPIX['x'], USER.NPIX['y']], int32).tofile(fpmap[idir])            
+                asarray([USER.NPIX['x'], USER.NPIX['y']], int32).tofile(fpmap[idir])
     KK  = (1.0e23/FACTOR) * PLANCK / (4.0*np.pi) #  1e3 = 1e23/1e20 = remove 1e20 scaling and convert to Jy/sr
     KK *= USER.GL*PARSEC
     OIFREQ = -1
@@ -2945,31 +2948,36 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
             cl.enqueue_copy(commands[0], MAP, MAP_buf)  # copy result to MAP
             # write the frequency maps to the files (whatever the size of MAP)
             if (using_fits):
-                if (not(singles)):
-                    fpmap[idir][0].data[IFREQ, :, :] = MAP
-                else:
-                    FFF[0].data =  MAP
-                    FFF.writeto('%s_%s%s.fits' % (USER.FITS_PREFIX, ums, suffix), overwrite=True)
-            else:
+                if (NDIR==1): filename =  "%s_%s.fits"      % (USER.FITS_PREFIX, ums)
+                else:         filename =  "%s_%s_%03d.fits" % (USER.FITS_PREFIX, ums, idir)
+                FFF = MakeFits(USER.FITS_RA, USER.FITS_DE, USER.GL*USER.MAP_DX/[1000.0, USER.DISTANCE][USER.DISTANCE>0.0], USER.NPIX['x'], USER.NPIX['y'], [], sys_req='fk5')
+                print(FFF)
+                FFF[0].data[:,:] = MAP
+                FFF.writeto(filename, overwrite=True)
+            else:  
                 asarray(MAP,float32).tofile(fpmap[idir])       # directly all the selected frequencies
             if (save_colden>0):
                 cl.enqueue_copy(commands[0], MAP, SAVETAU_buf) # same number of pixels as MAP
                 FFF[0].data = MAP
-                FFF.writeto('%s_colden%s.fits' % (USER.file_savetau, suffix), overwrite=True)
+                if (NDIR==1): '%s_colden%s.fits' % (USER.file_savetau, suffix)
+                else:         '%s_colden%s_%03d.fits' % (USER.file_savetau, suffix, idir)
+                FFF.writeto(filename, overwrite=True)
             if (save_tau>0):                                   # save optical depth
                 cl.enqueue_copy(commands[0], MAP, SAVETAU_buf) # same number of pixels as MAP
-                FFF[0].data = MAP
-                FFF.writeto('%s_tau_%s%s.fits' % (USER.file_savetau, ums, suffix), overwrite=True)
-            
+                if (using_fits):
+                    FFF[0].data = MAP
+                    if (NDIR==1): filename = '%s_tau_%s%s.fits' % (USER.file_savetau, ums, suffix)
+                    else:         filename = '%s_tau_%s%s_%03d.fits' % (USER.file_savetau, ums, suffix, idir)
+                    FFF.writeto(filename, overwrite=True)
+                else:
+                    if (NDIR==1): filename = '%s_tau_%s%s.bin' % (USER.file_savetau, ums, suffix)
+                    else:         filename = '%s_tau_%s%s_%03d.bin' % (USER.file_savetau, ums, suffix, idir)
+                    MAP.tofile(filename)
+                    
+                    
         # end of -- for idir
     # end of -- for IFREQ
-    if (using_fits):
-        if (not(singles)):
-            for idir in range(NDIR):
-                # filename =  "map_dir_%02d.fits" % idir
-                filename =  "%s_dir_%02d.fits" % (USER.FITS_PREFIX, idir)
-                fpmap[idir].writeto(filename, overwrite=True)
-    else:
+    if (not(using_fits)): # close binary files
         for idir in range(NDIR):  fpmap[idir].close()
 # end of -- if (USER.FAST_MAP<2) = slow mapping
 
