@@ -1,19 +1,18 @@
-#!/bin/python3
+#!/usr/bin/env python
 
 import os, sys, time
 
 # we assume that the Python scripts and *.c kernel files are in this directory
 # HOMEDIR = os.path.expanduser('~/')
-# sys.path.append(HOMEDIR+'/starformation/SOC/')
 INSTALL_DIR  = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(INSTALL_DIR)
 
 from ASOC_aux import *
 
 
-SHAREDIR = '/dev/shm'
+## SHAREDIR = '/dev/shm'
 ## SHAREDIR = '/HDD/mika/tt/HIMASS/'
-## SHAREDIR = './'
+SHAREDIR = '.'
 
 USE_MMAP = False  # False, unless CELLS*NOFREQ does not fit to main memory !!
 
@@ -143,7 +142,6 @@ if (GPU>0):                 # GPU was specified on command line or in the ini fi
 if (len(platforms)<1):
     platforms = arange(5)
     
-
     
 
 print("A2E_MABU.py   makelib %d, uselib %d, ini %s" % (MAKELIB, USELIB, sys.argv[1]))
@@ -653,7 +651,7 @@ for IDUST in range(NDUST):
     fplog.write("      Split absorbed: %.2f seconds\n" % (time.time()-t0))
 
     
-    if (1):
+    if (0):
         os.system('cp /dev/shm/tmp.absorbed split.%d' % IDUST)
     
     
@@ -737,28 +735,28 @@ for IDUST in range(NDUST):
                 if (len(mm[0])==1):  em_ifreq = m[0]  # select a single output frequency
             if (AALG==None):
                 print("==========================================================================================")
-                print('      A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d %d'         % (DUST[IDUST], SHAREDIR, SHAREDIR, GPU, nstoch, em_ifreq))
+                print('      A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d %d'         % (DUST[IDUST], SHAREDIR, SHAREDIR, GPU_TAG, nstoch, em_ifreq))
                 print("==========================================================================================")
-                fplog.write('      A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d %d\n' % (DUST[IDUST], SHAREDIR, SHAREDIR, GPU, nstoch, em_ifreq))
-                os.system('A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d  %d'          % (DUST[IDUST], SHAREDIR, SHAREDIR, GPU, nstoch, em_ifreq))
+                fplog.write('      A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d %d\n' % (DUST[IDUST], SHAREDIR, SHAREDIR, GPU_TAG, nstoch, em_ifreq))
+                os.system('A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d  %d'          % (DUST[IDUST], SHAREDIR, SHAREDIR, GPU_TAG, nstoch, em_ifreq))
             else:
                 # Solve emission and separately the polarised emission using the aalg file and the file  <dust>.rpol_single
                 if (DUST[IDUST] in AALG.keys()):  # this dust will have polarised intensity
                     aalg_file  =  AALG[DUST[IDUST]]
                     print("==========================================================================================")
-                    print('      A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d %d %s'         % (DUST[IDUST], SHAREDIR, SHAREDIR, GPU, nstoch, em_ifreq, aalg_file))
+                    print('      A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d %d %s'         % (DUST[IDUST], SHAREDIR, SHAREDIR, GPU_TAG, nstoch, em_ifreq, aalg_file))
                     print("==========================================================================================")
-                    fplog.write('      A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d %d %s\n' % (DUST[IDUST], SHAREDIR, SHAREDIR, GPU, nstoch, em_ifreq, aalg_file))
+                    fplog.write('      A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d %d %s\n' % (DUST[IDUST], SHAREDIR, SHAREDIR, GPU_TAG, nstoch, em_ifreq, aalg_file))
                     # aalg_file = a_alg[CELLS], minumum aligned grain size for each cell
-                    #                  solver    absorbed        emitted         GPU   nstoch  IFREQ  aalg
-                    os.system('A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f  %d      %d     %s' % (DUST[IDUST], SHAREDIR, SHAREDIR, GPU, nstoch, em_ifreq, aalg_file))
+                    #                  solver    absorbed        emitted         GPU_TAG   nstoch  IFREQ  aalg
+                    os.system('A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f  %d      %d     %s' % (DUST[IDUST], SHAREDIR, SHAREDIR, GPU_TAG, nstoch, em_ifreq, aalg_file))
                     # we have emission in %s/tmp.emitted, polarised emission %s/tmp.emitted.P
                 else:  # without polarised emission
                     print("==========================================================================================")
-                    print('      A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d %d'         % (DUST[IDUST], SHAREDIR, SHAREDIR, GPU, nstoch, em_ifreq))
+                    print('      A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d %d'         % (DUST[IDUST], SHAREDIR, SHAREDIR, GPU_TAG, nstoch, em_ifreq))
                     print("==========================================================================================")
-                    fplog.write('      A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d %d\n' % (DUST[IDUST], SHAREDIR, SHAREDIR, GPU, nstoch, em_ifreq))
-                    os.system('A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d %d'           % (DUST[IDUST], SHAREDIR, SHAREDIR, GPU, nstoch, em_ifreq))
+                    fplog.write('      A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d %d\n' % (DUST[IDUST], SHAREDIR, SHAREDIR, GPU_TAG, nstoch, em_ifreq))
+                    os.system('A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d %d'           % (DUST[IDUST], SHAREDIR, SHAREDIR, GPU_TAG, nstoch, em_ifreq))
                     
             
         if ((USELIB==0)&(NOFREQ!=NFREQ)):  # so far only equilibrium dust files can have NOFREQ<NFREQ !!
@@ -803,7 +801,8 @@ for IDUST in range(NDUST):
     filename         =  SHAREDIR+'/tmp.emitted'
     
     
-    if (1): os.system('cp %s  tmp.emitted.DUST_%02d' % (filename, IDUST))
+    if (0):
+        os.system('cp %s  tmp.emitted.DUST_%02d' % (filename, IDUST))
     
     
     

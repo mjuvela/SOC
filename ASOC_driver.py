@@ -1,4 +1,5 @@
-#!/usr/bin/python
+#!/usr/bin/env python
+import time
 
 if (0):
     from MJ.mjDefs import *
@@ -113,8 +114,9 @@ for idust in range(NDUST):
         print("================================================================================")
         print('A2E_pre.py %s.dust freq.dat %s' % (dust, solver)) # gs_aSilx.dust -> aSilx.solver
         print("================================================================================")
+        t0 = time.time()
         os.system('A2E_pre.py %s.dust freq.dat %s' % (dust, solver))
-    
+        print('... A2E_pre.py %s.dust freq.dat %s ... %.2f seconds' % (dust, solver, time.time()-t0)) # gs_aSilx.dust -> aSilx.solver
 
         
         
@@ -168,7 +170,9 @@ if (1): # THE ASOC RUNS
     print('ASOC.py rt_simple.ini')
     print("================================================================================")
     if (1):
+        t0 = time.time()
         os.system('ASOC.py rt_simple.ini')
+        print('... ASOC.py rt_simple.ini ... %.2f seconds' % (time.time()-t0))
     else:
         print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         print("!!!!! ASOC.py rt_simple.ini SKIPPED !!!!!")
@@ -181,7 +185,10 @@ if (1): # THE ASOC RUNS
         LINES  =  open('rt_simple.ini').readlines()
         fp     =  open('makelib.ini', 'w')
         AFILE  =  ''   # probably /dev/shm/makelib_A.lib
-        AFILE2 =  '/dev/shm/makelib_A2.lib'
+        if (0):
+            AFILE2 =  '/dev/shm/makelib_A2.lib'
+        else:
+            AFILE2 =  'makelib_A2.lib'
         for line in LINES:
             s = line.split()
             if (len(s)<1): continue
@@ -243,7 +250,10 @@ if (MAKELIB):  args += " makelib"   # will both calculate emitted and build the 
 # the user has chosen that and A2E_MABU.py will solve emission without
 # stochastic heating for that dust component
 lines   = open(INI).readlines()
-fpo     = open('/dev/shm/a2e.ini', 'w')
+if (0):
+    fpo     = open('/dev/shm/a2e.ini', 'w')
+else:
+    fpo     = open('a2e.ini', 'w')
 libmaps = ''
 for line in lines:
     if (0):
@@ -269,8 +279,9 @@ print('A2E_MABU.py %s %s %s %s' % (INI, fabs, femit, args))
 print("================================================================================")
 # sys.exit()
 os.system('cp %s a2e_mabu_backup.ini' % INI)
+t0 = time.time()
 os.system('A2E_MABU.py %s %s %s %s' % (INI, fabs, femit, args))
-
+print('... A2E_MABU.py %s %s %s %s... %.2f seconds' % (INI, fabs, femit, args, time.time()-t0))
 
 
 # ok --- if we have libmaps in the ini, emission file contains only those frequencies
@@ -312,5 +323,6 @@ print("OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO
 print("================================================================================")
 print("ASOC.py maps.ini")
 print("================================================================================")
+t0 = time.time()
 os.system('ASOC.py maps.ini')
-
+print("... ASOC.py maps.ini... %.2f seconds" % (time.time()-t0))

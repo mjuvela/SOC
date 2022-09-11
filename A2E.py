@@ -1,4 +1,5 @@
-#!/usr/bin/python3
+#!/usr/bin/env python
+
 
 # 2019-04-24 -- New version of A2E_pyCL.py - stripped away the iterative solvers and plotting
 import os, sys

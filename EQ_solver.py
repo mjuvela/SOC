@@ -1,4 +1,5 @@
-#!/bin/python
+#!/usr/bin/env python
+
 import os, sys
 INSTALL_DIR  = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(INSTALL_DIR)

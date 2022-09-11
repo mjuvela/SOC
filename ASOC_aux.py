@@ -1,5 +1,4 @@
 
-
 from   matplotlib.pylab import *
 from   scipy.interpolate import interp1d
 import pyopencl as cl
@@ -41,7 +40,7 @@ H_CC    =  7.372496678e-48
 
 SEED0   =  0.8150982470475214
 SEED1   =  0.1393378751427912
-MAXPS   =  3000   # maximum number of point sources
+MAXPS   =  4000   # maximum number of point sources
 
 DEGREE_TO_RADIAN =  0.0174532925199432958
 RADIAN_TO_DEGREE =  57.2957795130823208768
@@ -51,6 +50,8 @@ MAX_SPLIT = 2560   # for MWM
 MAX_SPLIT = 3560   # 2021-03-06 -- needed for IMF256 snap 176 ... and not enough !!
 MAX_SPLIT = 3800   # 2021-03-06 -- needed for IMF256 snap 176, even IRDC, close to Tux GPU memory limit
 # MAX_SPLIT = 5120   # 2020-12-05 .... again 2021-03-06
+MAX_SPLIT = 4300   # 2022-07-13  ... SN50_9_13_000800.soc some warnings with MAX_SPLIT=3800
+
 
 def Planck(f, T):      # Planck function
     return 2.0*H_CC*f*f*f / (exp(H_K*f/T)-1.0) 
@@ -215,6 +216,7 @@ class User:
         self.FITS_PREFIX   = 'map'   # 2022-03-02
         self.FITS_RA       = 0.0     # optional  FITS centre coordinates in degrees
         self.FITS_DE       = 0.0
+        self.MIRROR       = ''
         
         # read inifile
         for line in open(filename).readlines():    
@@ -282,7 +284,8 @@ class User:
                     if (len(s)>=4):
                         self.FITS_PREFIX = s[3]
                 
-                
+            if (key.find('mirror')==0): # reflective borders, could be e.g. "xzXZ"
+                self.MIRROR = s[1]
                 
             if (len(s)<2): continue
             # keywords with a single argument

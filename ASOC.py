@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 
-
 import os, sys
 
 # HOMEDIR      = os.path.expanduser('~/')
@@ -296,6 +295,11 @@ if (USER.DO_SPLIT):
 
 print("PS_METHOD=%d, WITH_ABU=%d, WITH_MSF=%d" % (USER.PS_METHOD, WITH_ABU, WITH_MSF))
 
+MIRROR =  1*('x' in USER.MIRROR)+ 2*('X' in USER.MIRROR)+  \
+          4*('y' in USER.MIRROR)+ 8*('Y' in USER.MIRROR)+  \
+         16*('z' in USER.MIRROR)+32*('Z' in USER.MIRROR)
+
+print("*** MIRROR *** ", MIRROR)
 
 ARGS = "-D NX=%d -D NY=%d -D NZ=%d -D BINS=%d -D WITH_ALI=%d -D PS_METHOD=%d -D FACTOR=%.4ef \
 -D CELLS=%d -D AREA=%.0f -D NO_PS=%d -D WITH_ABU=%d -D ROI_MAP=%d -D MAX_SPLIT=%d -D SELEM=%d \
@@ -305,7 +309,7 @@ ARGS = "-D NX=%d -D NY=%d -D NZ=%d -D BINS=%d -D WITH_ALI=%d -D PS_METHOD=%d -D 
 -D LEVEL_THRESHOLD=%d -D POLRED=%d -D p00=%.4ff -D MINLOS=%.3ef -D MAXLOS=%.3ef \
 -D FFS=%d -D NODIR=%d -D USE_EMWEIGHT=%d -D SAVE_INTENSITY=%d -D NOABSORBED=%d -D INTERPOLATE=%d \
 -D ADHOC=%.5ef %s -D HPBG_WEIGHTED=%d -D WITH_MSF=%d -D NDUST=%d -D OPT_IS_HALF=%d -D POL_RHO_WEIGHT=%d \
--D MAP_INTERPOLATION=%d" % \
+-D MAP_INTERPOLATION=%d -D MIRROR=%d " % \
 (  NX, NY, NZ, USER.DSC_BINS, USER.WITH_ALI, USER.PS_METHOD, FACTOR,
    CELLS, int(USER.AREA), max([1,int(USER.NO_PS)]), WITH_ABU, USER.ROI_MAP, MAX_SPLIT, SELEM,
    USER.ROI_STEP, USER.ROI_NSIDE, USER.WITH_ROI_LOAD, USER.WITH_ROI_SAVE,
@@ -315,7 +319,7 @@ ARGS = "-D NX=%d -D NY=%d -D NZ=%d -D BINS=%d -D WITH_ALI=%d -D PS_METHOD=%d -D 
    USER.LEVEL_THRESHOLD, len(USER.file_polred)>0, USER.p0, USER.MINLOS, USER.MAXLOS,
    USER.FFS, NODIR, USER.USE_EMWEIGHT, USER.SAVE_INTENSITY,  USER.NOABSORBED, USER.INTERPOLATE, 
    ADHOC, USER.kernel_defs, USER.HPBG_WEIGHTED, WITH_MSF, NDUST, USER.OPT_IS_HALF, USER.POL_RHO_WEIGHT,
-   USER.MAP_INTERPOLATION)
+   USER.MAP_INTERPOLATION, MIRROR)
 # print(ARGS)
 VARGS = ""
 # VARGS += " -cl-nv-cstd=CL1.1 -cl-nv-arch sm_20 -cl-single-precision-constant -cl-mad-enable"
@@ -338,7 +342,7 @@ if (0):
 #    to appear as zeros on the device !!!!!!!!
 # -cl-fast-relaxed-math = -cl-mad-enable -cl-no-signed-zeros -cl-unsafe-math-optimizations -cl-finite-math-only
 # => DO NOT USE -cl-unsafe-math-optimizations ON NVidia !!!!!!!!!!!
-VARGS += "-cl-mad-enable -cl-no-signed-zeros -cl-finite-math-only"  # this seems ok on NVidia !!
+VARGS += " -cl-mad-enable -cl-no-signed-zeros -cl-finite-math-only"  # this seems ok on NVidia !!
 
 ARGS   += VARGS
 
@@ -2057,7 +2061,7 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                     
             # Save temperatures -- file format is the same as for density (including links!)
             print('Save temperatures')
-            if (len(USER.file_temperature)>1):
+            if (len(USER.file_temperature)>0):
                 fp = open(USER.file_temperature, "wb")
                 asarray([NX, NY, NZ, LEVELS, CELLS], int32).tofile(fp)
                 for level in range(LEVELS):

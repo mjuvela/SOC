@@ -1,6 +1,5 @@
 #define HG_TEST 0
 
-
 #define TWOPI     6.28318531f
 #define TAULIM    5.0e-4f
 #define PIHALF    1.5707963268f
@@ -21,9 +20,9 @@
 #define I2F(x)    (*(float *)&x)         //           OTI    -> __global BUFFER
 
 #if 0
-#define DIMLIN 300
+# define DIMLIN 300
 #else
-#define DIMLIM 100 // if base grid NX is larger, use double precision for position
+# define DIMLIM 100 // if base grid NX is larger, use double precision for position
 #endif
 
 #if (NX>DIMLIM)  // from Index()
@@ -727,7 +726,7 @@ __kernel void EqTemperature(const int       level,
          ;
       } else {
          printf("???    Ein %12.4e  [%12.4e, %12.4e]         T = %.3e,  NE=%d, kE=%.6f\n",
-                             Ein,   Emin, Emin*pown(kE, NE), TNEW[ind], NE,   kE) ;
+                Ein,   Emin, Emin*pown(kE, NE), TNEW[ind], NE,   kE) ;
       }
    }
    // }
@@ -916,3 +915,33 @@ int InRoi(const int level, const int ind, constant int *ROI, __global int *PAR, 
 
 
 
+void Mirror(float3 *pos, float3 *dir, int *level, int *ind, __global float *DENS, __constant int *OFF) {
+   // Implement mirroring at surfaces
+   // Called only with ind<0 = we went back to root grid and noticed that position is outside the model volume
+   // => we are at level=0 and POS is the position on the *root* grid
+   // printf("MIRROR = %d\n", MIRROR) ;
+   if (MIRROR & 1) {     // lower X boundary
+      if (pos->x<0.0f)   pos->x = EPS ;     dir->x = -dir->x ;
+      IndexG(pos, level, ind, DENS, OFF) ;  // again inside the model volume
+   } 
+   if (MIRROR & 2) {     // higher X boundary
+      if (pos->x>NX)     pos->x = NX-EPS ;  dir->x = -dir->x ;
+      IndexG(pos, level, ind, DENS, OFF) ;  // again inside the model volume
+   }
+   if (MIRROR & 4) {     // lower Y boundary
+      if (pos->y<0.0f)   pos->y = EPS ;     dir->y = -dir->y ;
+      IndexG(pos, level, ind, DENS, OFF) ;  // again inside the model volume
+   } 
+   if (MIRROR & 8) {     // higher Y boundary
+      if (pos->y>NY)     pos->y = NY-EPS ;  dir->y = -dir->y ;
+      IndexG(pos, level, ind, DENS, OFF) ;  // again inside the model volume
+   }
+   if (MIRROR & 16) {     // lower Y boundary
+      if (pos->z<0.0f)   pos->z = EPS ;     dir->z = -dir->z ;
+      IndexG(pos, level, ind, DENS, OFF) ;  // again inside the model volume
+   } 
+   if (MIRROR & 32) {     // higher Y boundary
+      if (pos->z>NZ)     pos->z = NZ-EPS ;  dir->z = -dir->z ;
+      IndexG(pos, level, ind, DENS, OFF) ;  // again inside the model volume
+   }
+}

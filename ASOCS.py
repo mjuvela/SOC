@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+
 import os, sys
 
 #  HOMEDIR = os.path.expanduser('~/')
@@ -120,13 +121,18 @@ print('-'*90)
 print("PS_METHOD=%d, WITH_ABU=%d, WITH_MSF=%d" % (USER.PS_METHOD, WITH_ABU, WITH_MSF))
 print('-'*90)
 
+MIRROR =  1*('x' in USER.MIRROR)+ 2*('X' in USER.MIRROR)+  \
+          4*('y' in USER.MIRROR)+ 8*('Y' in USER.MIRROR)+  \
+         16*('z' in USER.MIRROR)+32*('Z' in USER.MIRROR)
+print("*** MIRROR *** ", MIRROR)
+
 ARGS = "-D NX=%d -D NY=%d -D NZ=%d -D BINS=%d -D WITH_ALI=%d -D PS_METHOD=%d \
 -D CELLS=%d -D AREA=%.0f -D NO_PS=%d  %s -D WITH_ABU=%d -D FACTOR=%.4ef \
 -D AXY=%.5ff -D AXZ=%.5ff -D AYZ=%.5ff -D LEVELS=%d -D LENGTH=%.5ef -I%s \
 -D POLSTAT=%d -D SW_A=%.3ef -D SW_B=%.3ef -D STEP_WEIGHT=%d -D DIR_WEIGHT=%d -D DW_A=%.3ef \
 -D LEVEL_THRESHOLD=%d -D POLRED=%d -D WITH_COLDEN=%d -D MINLOS=%.3ef -D MAXLOS=%.3ef \
 -D FFS=%d -D BG_METHOD=%d -D USE_EMWEIGHT=%d -D HPBG_WEIGHTED=%d -D WITH_MSF=%d -D NDUST=%d \
--D OPT_IS_HALF=%d -D WITH_ROI_LOAD=%d -D ROI_NSIDE=%d" % \
+-D OPT_IS_HALF=%d -D WITH_ROI_LOAD=%d -D ROI_NSIDE=%d -D MIRROR=%d " % \
 (  NX, NY, NZ, USER.DSC_BINS, USER.WITH_ALI, USER.PS_METHOD,
    CELLS, int(USER.AREA), max([1,int(USER.NO_PS)]), USER.kernel_defs, WITH_ABU, FACTOR, 
    USER.AXY, USER.AXZ, USER.AYZ, LEVELS, USER.GL*PARSEC, INSTALL_DIR,
@@ -134,7 +140,7 @@ ARGS = "-D NX=%d -D NY=%d -D NZ=%d -D BINS=%d -D WITH_ALI=%d -D PS_METHOD=%d \
    int(USER.DIR_WEIGHT[0]), USER.DIR_WEIGHT[1],
    USER.LEVEL_THRESHOLD, len(USER.file_polred)>0, len(USER.file_savetau)>1, USER.MINLOS, USER.MAXLOS,
    USER.FFS, USER.BG_METHOD, USER.USE_EMWEIGHT, USER.HPBG_WEIGHTED, WITH_MSF, NDUST,
-   USER.OPT_IS_HALF, USER.WITH_ROI_LOAD, USER.ROI_NSIDE)
+   USER.OPT_IS_HALF, USER.WITH_ROI_LOAD, USER.ROI_NSIDE, MIRROR)
    
 ### NVARGS  = " -cl-fast-relaxed-math"  ---- THIS WILL NOT WORK WITH NVIDIA, SMALL FLOAT ROUNDED TO ZERO !!!!
 ### ARGS   += " -cl-mad-enable -cl-no-signed-zeros -cl-finite-math-only"  # this seems ok on NVidia !!

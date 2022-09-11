@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 
 if (0):
     from MJ.mjDefs import *
@@ -48,8 +48,11 @@ AFILE    =  sys.argv[5]
 EFILE    =  sys.argv[6]
 F_OFREQ  =  ""
 LIB_BINS =  [ 45, 34, 15 ]
-SHAREDIR = '/dev/shm'
-
+if (0):
+    SHAREDIR = '/dev/shm'  # put temp files to shared memory
+else:
+    SHAREDIR = './'
+    
 # file for absorptions
 CELLS, nfreq = fromfile(AFILE, int32, 2)
 CREATE = False

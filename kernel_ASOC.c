@@ -1,3 +1,4 @@
+
 #include "kernel_ASOC_aux.c"
 
 
@@ -59,6 +60,8 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
    // BG:  SOURCE==1      GLOBAL>=AREA,     BATCH>=1
    // => each work item does precisely BATCH packages
    
+   
+   // printf("SimRAM_PB\n") ;
    
    int    oind=0, level=0, scatterings, steps, SIDE ;
    float  ds, free_path, tau, dtau, delta, tauA, dx, phi, cos_theta, sin_theta ;
@@ -677,14 +680,19 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
 #endif          
                
                
-            }
+            } // failed step
+            
+            
+#if (MIRROR>0) // **inside the loop** test if exited photon package should be just mirrored
+            if (ind<0)  Mirror(&POS, &DIR, &level, &ind, DENS, OFF) ;  // possibly again ind>=0 ...
+#endif                        
+            
          } ;  // while ind>=0
          
          
          
          
          // package has scattered or exited the volume
-         // if (ind<0) break ;
          if (ind<0) break ;
          
          // OTHERWISE SCATTER
@@ -1052,8 +1060,12 @@ __kernel void SimRAM_HP(const      int      PACKETS,  //  0 - number of packets
                // printf("    POS00 %9.6f %9.6f %9.6f\n", POS00.x, POS00.y, POS00.z) ;
                // ind = -1 ; steps = 0 ;  break ;
             }
+            
+#if (MIRROR>0)
+            if (ind<0) Mirror(&POS, &DIR, &level, &ind, DENS, OFF) ;
+#endif
+            
          } ;
-         
          
          
          
@@ -1522,17 +1534,21 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
                atomicAdd_g_f(&(ROI_SAVE[ii*12*ROI_NSIDE*ROI_NSIDE + jj]), PHOTONS) ;
             } // if stepped into roi
             
-# endif            
+# endif
+            
+            
+# if (MIRROR>0)
+            if (ind<0) Mirror(&POS, &DIR, &level, &ind, DENS, OFF) ;
+# endif
+            
          } ;  // while ind >=0 
-         
-         
-         
          
          
          // package has scattered or exited the volume
          
-         
-         if (ind>=0) {  // it was a scattering
+         if (ind>=0) { // it was a scattering
+            
+            // it was a scattering
             scatterings++ ;
 # if 1 
             if (scatterings>20) {
@@ -1944,14 +1960,16 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
                   jj        =  clamp(jj, 0, 12*ROI_NSIDE*ROI_NSIDE-1) ;
                   atomicAdd_g_f(&(ROI_SAVE[ii*12*ROI_NSIDE*ROI_NSIDE + jj]), PHOTONS) ;
                } // if moved to roi
-# endif            
+# endif
+               
+# if (MIRROR>0)
+               if (ind<0) Mirror(&POS, &DIR, &level, &ind, DENS, OFF) ;
+# endif
                
             } ;
             
             // package has scattered or exited the volume
       
-            
-            
             
             if (ind>=0) {  // it was a scattering
                scatterings++ ;
@@ -2685,7 +2703,7 @@ __kernel void SimBgSplit(const      int      PACKETS,     //  0 - number of pack
                      steps       =  0 ;   // 2020-11-14
                      
                   } // level > level0 --- split the ray
-
+                  
                   
                   
                   // Or, if we stepped into a less refined cell
@@ -2734,11 +2752,8 @@ __kernel void SimBgSplit(const      int      PACKETS,     //  0 - number of pack
             
             
             
-            
-            
             // RAY HAS EXITED AND BUFFER IS EMPTY --- OR WE HAVE A NORMAL SCATTERING
             if (ind<0) break ; // break OUTER WHILE --- continue with next III = next in the loop over BATCH rays
-            
             
             
             // SCATTER
@@ -3431,8 +3446,10 @@ __kernel void SimHpSplit(const      int      PACKETS,     //  0 - number of pack
          
          
          
-         // RAY HAS EXITED AND BUFFER IS EMPTY --- OR WE HAVE A NORMAL SCATTERING
-         if (ind<0) break ; // break OUTER WHILE --- continue with next III = next in the loop over BATCH rays
+         // RAY HAS EXITED AND BUFFER IS EMPTY --- OR WE HAVE A NORMAL SCATTERING --- OR WE MIRROR
+         // if (ind<0) break ; // break OUTER WHILE --- continue with next III = next in the loop over BATCH rays
+         // no mirroring when photon splitting is used
+         if (ind<0) break ;
          
          
          

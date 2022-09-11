@@ -276,8 +276,14 @@ __kernel void SimRAM_HP(const      int      PACKETS,   //  0 - number of packets
                break ;                   // scatter before doing the step ds
             }
             tau      +=  dtau ;
-         }
-         if (ind<0) break ;  // ray is out of the cloud -- break the loop: while(ind>=0)
+            
+#if (MIRROR>0)         
+            if (ind<0) Mirror(&POS, &DIR, &level, &ind, DENS, OFF) ; // may be again ind>=0
+#endif            
+         } // while ind>=0
+         
+         if (ind<0) break ;
+         
          
          // we scatter - after a partial step from old position POS
          //  == we are still inside the scattering cell {POS0, level0, ind0, oind}
@@ -930,10 +936,15 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
                break ;                   // scatter before ds
             }
             tau      +=  dtau ;
-         }
-         if (ind<0) break ;  // ray is out of the cloud
+            
+#if (MIRROR>0)         
+            if (ind<0) Mirror(&POS, &DIR, &level, &ind, DENS, OFF) ; // may be again ind>=0
+#endif            
+            
+         } // while (ind>=0)
          
          
+         if (ind<0) break ;
          
          
          // we do scatter - after partial step from old position POS0, staying in the same cell
@@ -1265,9 +1276,15 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
                break ;                   // scatter before doing the step ds
             }
             tau      +=  dtau ;
-         }
-         if (ind<0) break ;  // ray is out of the cloud -- break the loop: while(ind>=0)
+            
+#if (MIRROR>0)         
+            if (ind<0) Mirror(&POS, &DIR, &level, &ind, DENS, OFF) ; // may be again ind>=0
+#endif            
+            
+         } // while (ind>=0)
          
+         
+         if (ind<0) break ;
          
          // we scatter - after a partial step from old position POS
          //  == we are still inside the scattering cell {POS0, level0, ind0, oind}
@@ -1508,16 +1525,16 @@ __kernel void SimRAM_PS(const      int      PACKETS,   //  0 - number of packets
       DIR.x     =  sin_theta*native_cos(phi) ;   
       DIR.y     =  sin_theta*native_sin(phi) ;
       DIR.z     =  cos_theta ;
-# if 0   // [2021-10-30] - one work item does only one source, BATCH photon packages --- slower !!!
+#if 0   // [2021-10-30] - one work item does only one source, BATCH photon packages --- slower !!!
       PHOTONS   =  PS[ips] ;
       POS.x     =  PSPOS[ips].x ;   POS.y = PSPOS[ips].y ;   POS.z = PSPOS[ips].z ;
       // POS       =  PSPOS[ips] ;
-# else
-#  if 1 
+#else
+# if 1 
       level0    =  III % NO_PS ;      // same source at the same time for all work items
-#  else
+# else
       level0 =  (III+id) % NO_PS ;    // round robin, work items work on different sources -- slower
-#  endif
+# endif
       PHOTONS   =  PS[level0] ;               // WPS ~ 1/PSPAC, PSPAC ~ GLOBAL*PATCH
       POS.x     =  PSPOS[level0].x ;   POS.y = PSPOS[level0].y ;   POS.z = PSPOS[level0].z ;
 #endif
@@ -1525,12 +1542,12 @@ __kernel void SimRAM_PS(const      int      PACKETS,   //  0 - number of packets
       IndexG(&POS, &level, &ind, DENS, OFF) ;
       
       if ((ind<0)||(ind>=CELLS)) {   // if pointsource is outside the model volume
-# if (PS_METHOD==0)
+#if (PS_METHOD==0)
          // Basic (inefficient) isotropic emission
          Surface(&POS, &DIR) ;
          IndexG(&POS, &level, &ind, DENS, OFF) ;            
-# endif
-# if (PS_METHOD==1)
+#endif
+#if (PS_METHOD==1)
          // if (id==0) printf("PS_METHOD==1\n") ;
          // pointsource outside the volume, send all packages to 2pi solid angle
          // => only sqrt(2) decrease in the noise, many packages will miss the cloud altogether
@@ -1561,8 +1578,8 @@ __kernel void SimRAM_PS(const      int      PACKETS,   //  0 - number of packets
          Surface(&POS, &DIR) ;
          PHOTONS *= 0.5f ;  // photons emitted to half-space
          IndexG(&POS, &level, &ind, DENS, OFF) ;            
-# endif
-# if (PS_METHOD==2)
+#endif
+#if (PS_METHOD==2)
          // METHOD B
          //   This is ok method.... but gives equal number of rays for surface elements far from the 
          //   source as for the surface elements close to the source... a concern if the point source
@@ -1588,10 +1605,10 @@ __kernel void SimRAM_PS(const      int      PACKETS,   //  0 - number of packets
          //       selecting any visible side
          POS.x    =  PSPOS[level0].x ;   POS.y = PSPOS[level0].y ;   POS.z = PSPOS[level0].z ;
          // select random side, XY, YZ, or XZ
-#  if 1      // equal probability for all visible sides (irrespective of their projected visible area)
+# if 1      // equal probability for all visible sides (irrespective of their projected visible area)
          ind      =  floor(Rand(&rng)*XPS_NSIDE[level0]*0.999999f) ;  // side is the one in XPS_SIDE[ind], ind=0,1,2
          PHOTONS /=  XPS_AREA[3*level0+ind] ;  // while ind = 0,1,2
-#   if 0
+#  if 0
          if (isfinite(PHOTONS)) { 
             ;
          } else {
@@ -1599,16 +1616,16 @@ __kernel void SimRAM_PS(const      int      PACKETS,   //  0 - number of packets
             printf("ind %d, area %.3e, PHOTONS %.3e\n", ind, XPS_AREA[3*level0+ind], PHOTONS) ; 
             PHOTONS = 0.0f ;
          }
-#   endif     
+#  endif     
          ind      =  XPS_SIDE[3*level0+ind] ;  // side 0-5,  +X,-X,+Y,-Y,+Z,-Z ~ 0-5
-#  else
+# else
          // weight selection according to the projected area == XPS_AREA[]
          // *** XPS_AREA are not yet actually calculated, see host ***
          v1       =  Rand(&rng) ;
          for(ind=0; v1>0.0f; ind++) v1 -= XPS_AREA[3*level0+ind] ; // [0,3[
          PHOTONS *=  ??? ;
          ind      =  XPS_SIDE[3*level0+ind] ;                      // [0,6[, +X,-X,+Y,-Y,+Z,-Z ~ 0-5
-#  endif
+# endif
          // printf("SIDE %d\n", ind) ;
          // select random point on the surface
          float a=Rand(&rng), b = Rand(&rng) ;
@@ -1639,8 +1656,8 @@ __kernel void SimRAM_PS(const      int      PACKETS,   //  0 - number of packets
          // re-weight photon numbers
          PHOTONS  *=   v2*b / (4.0f*PI*v1*v1) ; // division by XPS_AREA done above when ind was still [0,3[
          IndexG(&POS, &level, &ind, DENS, OFF) ;            
-# endif
-# if (PS_METHOD==4)
+#endif
+#if (PS_METHOD==4)
          // We require that the point source is in Z above the cloud
          // and the source (X,Y) coordinates correspond to the centre of the cloud XY plane.
          // In this case we can calculate the cone in which the cloud is seen
@@ -1658,8 +1675,8 @@ __kernel void SimRAM_PS(const      int      PACKETS,   //  0 - number of packets
          DIR.z      =  -cos_theta ;
          Surface(&POS, &DIR) ;            
          IndexG(&POS, &level, &ind, DENS, OFF) ;            
-# endif
-# if (PS_METHOD==5)
+#endif
+#if (PS_METHOD==5)
          // Generilisation of PS_METHOD==4
          // Host has calculated the main illuminated side, values 0-5 of 
          //   XPS_SIDE[3*level0] correspond to illuminated sides +X, -X, +Y, -Y, +Z, -Z.
@@ -1690,7 +1707,7 @@ __kernel void SimRAM_PS(const      int      PACKETS,   //  0 - number of packets
          }
          Surface(&POS, &DIR) ;            
          IndexG(&POS, &level, &ind, DENS, OFF) ;
-# endif                        
+#endif                        
       }  // external point source
       
       
@@ -1700,7 +1717,7 @@ __kernel void SimRAM_PS(const      int      PACKETS,   //  0 - number of packets
       DIR         =  normalize(DIR) ;
       
       
-# if (FFS>0)
+#if (FFS>0)
       // Forced first scattering
       POS0       =  POS ;     // do not touch the parameters of the real ray {POS, ind, level}
       ind0       =  ind ;
@@ -1709,28 +1726,28 @@ __kernel void SimRAM_PS(const      int      PACKETS,   //  0 - number of packets
       while(ind0>=0) {
          oind    =  OFF[level0]+ind0 ;
          ds      =  GetStep(&POS0, &DIR, &level0, &ind0, DENS, OFF, PAR) ; // POS, level, ind updated !!
-#  if (WITH_ABU>0)
+# if (WITH_ABU>0)
          tau    +=  ds*DENS[oind]*GOPT(2*oind+1) ;  // OPT DEFINED ONLY IN CASE OF WITH_ABU>0
-#  else
+# else
          tau    +=  ds*DENS[oind]*(*SCA) ;
-#  endif
+# endif
       }
       if (tau<1.0e-22f) ind = -1 ;      // nothing along the LOS
-#  if 0
+# if 0
       W          =  1.0f-native_exp(-tau) ;
-#  else
-      W          =  -expm1(-tau) ;
-#  endif
-#  if 1
-      free_path  = -native_log(1.0f-W*Rand(&rng)) ;
-#  else
-      free_path  = -log1p(-W*Rand(&rng)) ;   // log1p(x) = ln(1+x)
-#  endif
-      PHOTONS   *=  W ;
 # else
+      W          =  -expm1(-tau) ;
+# endif
+# if 1
+      free_path  = -native_log(1.0f-W*Rand(&rng)) ;
+# else
+      free_path  = -log1p(-W*Rand(&rng)) ;   // log1p(x) = ln(1+x)
+# endif
+      PHOTONS   *=  W ;
+#else
       // no forced first scattering
       free_path  = -native_log(Rand(&rng)) ;
-# endif
+#endif
       
       
       // if (ind>=0)   printf("%8.4f %8.4f %8.4f  %8.4f %8.4f %8.4f\n", POS.x, POS.y, POS.z, DIR.x, DIR.y, DIR.z) ;
@@ -1749,38 +1766,42 @@ __kernel void SimRAM_PS(const      int      PACKETS,   //  0 - number of packets
             POS0      =  POS ;               // because GetStep does coordinate transformations...
             oind      =  OFF[level0]+ind0 ;  // global index at the beginning of the step
             ds        =  GetStep(&POS, &DIR, &level, &ind, DENS, OFF, PAR) ; // POS, level, ind updated !!
-# if (WITH_ABU>0)
+#if (WITH_ABU>0)
             dtau      =  ds*DENS[oind]*GOPT(2*oind+1) ;
-# else
+#else
             dtau      =  ds*DENS[oind]*(*SCA) ;
-# endif
+#endif
             if (free_path<(tau+dtau)) {  // tau = optical depth since last scattering
                ind = ind0 ;              // !!!
                break ;                   // scatter before ds
             }
             tau      +=  dtau ;
-         }
-         if (ind<0) break ;  // ray is out of the cloud
+            
+#if (MIRROR>0)         
+            if (ind<0) Mirror(&POS, &DIR, &level, &ind, DENS, OFF) ; // may be again ind>=0
+#endif
+         } // while (ind>=0)
          
          
-         
+         if (ind<0) break ;
+
          
          // we do scatter - after partial step from old position POS0, staying in the same cell
          scatterings++ ;
          dtau               =  free_path-tau ;
-# if (WITH_ABU>0)
+#if (WITH_ABU>0)
          dx                 =  dtau/(GOPT(2*oind+1)*DENS[oind]) ;
-# else
+#else
          dx                 =  dtau/((*SCA)*DENS[oind]) ;    // actual step forward in GLOBAL coordinates
-# endif
+#endif
          dx                 =  ldexp(dx, level) ;         // in LOCAL coordinates
          POS0               =  POS0 + dx*DIR ;            // POS0 becomes the position of the scattering
          // remove absorptions since last scattering
-# if (WITH_ABU>0)  // OPT contains per-cell values
+#if (WITH_ABU>0)  // OPT contains per-cell values
          PHOTONS           *=  native_exp(-free_path*GOPT(2*oind)/GOPT(2*oind+1)) ;
-# else
+#else
          PHOTONS           *=  native_exp(-free_path*(*ABS)/(*SCA)) ;
-# endif
+#endif
          
          // Do peel-off  -- starting at the location of the scattering = POS0
          if (NDIR<0) {   // healpix output
@@ -1799,15 +1820,15 @@ __kernel void SimRAM_PS(const      int      PACKETS,   //  0 - number of packets
                oind   =  OFF[level]+ind ;   // need to store index of the cell at the step beginning
                ds     =  min(dx, GetStep(&POS, &ODIR, &level, &ind, DENS, OFF, PAR)) + 1.0e-6f ;
                dx    -=  ds ;  // in root grid coordinates
-# if (WITH_ABU>0)
+#if (WITH_ABU>0)
                tau   +=  ds*DENS[oind]*(GOPT(2*oind)+GOPT(2*oind+1)) ;
-# else
+#else
                tau   +=  ds*DENS[oind]*((*ABS)+(*SCA)) ;
-# endif
+#endif
             }
             // time to add something to the scattering array
             cos_theta =  clamp(DIR.x*ODIR.x+DIR.y*ODIR.y+DIR.z*ODIR.z, -0.999f, +0.999f) ;
-# if (WITH_MSF>0)  // WITH_MSF>0 means that also WITH_ABU>0
+#if (WITH_MSF>0)  // WITH_MSF>0 means that also WITH_ABU>0
             // Using DSC of a randomly selected dust component
             oind      =  OFF[level0]+ind0 ;                   // back to the scattering cell
             dx        =  GOPT(2*oind+1) ;                     // sum(ABU*SCA) for the current cell
@@ -1816,7 +1837,7 @@ __kernel void SimRAM_PS(const      int      PACKETS,   //  0 - number of packets
                ds -= ABU[idust+NDUST*oind]*SCA[idust] / dx ; // RE-USING ind0 and free_path
                if (ds<=0.0) break ;
             }   
-# endif
+#endif
             delta    *=  PHOTONS* native_exp(-tau) *  DSC[idust*BINS+clamp((int)(BINS*(1.0f+cos_theta)*0.5f), 0, BINS-1)] ;
             // figure out the healpix pixel
             theta     =   acos(-ODIR.z) ;
@@ -1834,15 +1855,15 @@ __kernel void SimRAM_PS(const      int      PACKETS,   //  0 - number of packets
                while(ind>=0) {       // loop to surface, towards observer
                   oind   =  OFF[level]+ind ;   // need to store index of the cell at the step beginning
                   ds     =  GetStep(&POS, &ODIR, &level, &ind, DENS, OFF, PAR) ;
-# if (WITH_ABU>0)
+#if (WITH_ABU>0)
                   tau   +=  ds*DENS[oind]*(GOPT(2*oind)+GOPT(2*oind+1)) ;
-# else
+#else
                   tau   +=  ds*DENS[oind]*((*ABS)+(*SCA)) ;
-# endif
+#endif
                }
                // time to add something to the scattering array
                cos_theta =  clamp(DIR.x*ODIR.x+DIR.y*ODIR.y+DIR.z*ODIR.z, -0.999f, +0.999f) ;
-# if (WITH_MSF>0)
+#if (WITH_MSF>0)
                // Using DSC of a randomly selected dust component
                oind      =  OFF[level0]+ind0 ;                   // back to the scattering cell
                dx        =  GOPT(2*oind+1) ;                     // sum(ABU*SCA) for the current cell
@@ -1851,7 +1872,7 @@ __kernel void SimRAM_PS(const      int      PACKETS,   //  0 - number of packets
                   ds -= ABU[idust+NDUST*oind]*SCA[idust] / dx ; // RE-USING ind0 and free_path
                   if (ds<=0.0f) break ;
                }   
-# endif
+#endif
                delta     =  PHOTONS* native_exp(-tau) *  DSC[idust*BINS+clamp((int)(BINS*(1.0f+cos_theta)*0.5f), 0, BINS-1)] ;
                // coordinates  = projections on (ORA, ODE) vectors
                POS      -=  CENTRE ;
@@ -1890,15 +1911,15 @@ __kernel void SimRAM_PS(const      int      PACKETS,   //  0 - number of packets
             if (ds<=0.0f) break ;
          }
          Scatter(&DIR, &CSC[idust*BINS], &rng) ; // use the scattering function of the ind0:th dust species
-# endif
+#endif
          
          free_path      = -native_log(Rand(&rng)) ;
          
-# if (RUSSIAN_ROULETTE==0)
+#if (RUSSIAN_ROULETTE==0)
          if (scatterings==MAX_SCATTERINGS) {
             ind = -1 ;  continue  ; // go and get next ray
          }
-# else
+#else
          //  Russian roulette to remove packages   1/4*0 + 3/4*4/3
          if (scatterings==MAX_SCATTERINGS) {
             if (Rand(&rng)<0.25f) {   // one in four terminated
@@ -1908,7 +1929,7 @@ __kernel void SimRAM_PS(const      int      PACKETS,   //  0 - number of packets
                scatterings  = 0 ;
             }
          }
-# endif         
+#endif         
       } // while (ind>0) <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
       
    } // for III
