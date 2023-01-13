@@ -2074,6 +2074,7 @@ if (not('SUBITERATIONS' in USER.KEYS)):
             
         # Calculate emission
         if (not(USER.NOSOLVE)):
+            print("Calculate emission") 
             # If we have NOSOLVE==False, we have calculate TNEW above
             FTMP = zeros(REMIT_NFREQ, float64)
             if ('CLE' in USER.KEYS):                 # do emission calculation on device
@@ -2129,6 +2130,7 @@ if (not('SUBITERATIONS' in USER.KEYS)):
             del FTMP            
             Tsolve = time.time()-t0
         
+        print("--- End of iteration ---")
         # end of -- for iteration
         if (0):
             clf()
@@ -2932,6 +2934,8 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
         # Use kernel to do the LOS integration:  EMIT -> MAP
         # DENSITY is already on device, EMIT becomes number of emitted photons * 4*pi/(h*f)
         cl.enqueue_copy(commands[0], EMIT_buf[0], EMIT)
+        FFF = None
+        print("using_fits = %d" % using_fits)
         for idir in range(NDIR): #  loop over directions
             suffix = ''
             if (NDIR>1): suffix = '_dir%d' % idir
@@ -2955,21 +2959,37 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
             if (using_fits):
                 if (NDIR==1): filename =  "%s_%s.fits"      % (USER.FITS_PREFIX, ums)
                 else:         filename =  "%s_%s_%03d.fits" % (USER.FITS_PREFIX, ums, idir)
+<<<<<<< HEAD
                 FFF = MakeFits(USER.FITS_RA, USER.FITS_DE, USER.GL*USER.MAP_DX/[1000.0, USER.DISTANCE][USER.DISTANCE>0.0], USER.NPIX['x'], USER.NPIX['y'], [], sys_req='fk5')
                 print(FFF)
+=======
+                #   pixel is fraction MAP_DX of the root cell, which is USER.GL pc... and distance is USER.DISTANCE pc
+                FFF = MakeFits(USER.FITS_RA, USER.FITS_DE, USER.GL*USER.MAP_DX/[1000.0, USER.DISTANCE][USER.DISTANCE>0.0], USER.NPIX['x'], USER.NPIX['y'], [], sys_req='fk5')
+>>>>>>> 8ffa23b (Exclude Oclgrind from device selection. Added environmental variable)
                 FFF[0].data[:,:] = MAP
                 FFF.writeto(filename, overwrite=True)
             else:  
                 asarray(MAP,float32).tofile(fpmap[idir])       # directly all the selected frequencies
             if (save_colden>0):
+                print("SAVE_COLDEN   file_savetau = %s" % USER.file_savetau)
+                FFF = MakeFits(USER.FITS_RA, USER.FITS_DE, USER.GL*USER.MAP_DX/[1000.0, USER.DISTANCE][USER.DISTANCE>0.0], USER.NPIX['x'], USER.NPIX['y'], [], sys_req='fk5')
                 cl.enqueue_copy(commands[0], MAP, SAVETAU_buf) # same number of pixels as MAP
                 FFF[0].data = MAP
+<<<<<<< HEAD
                 if (NDIR==1): '%s_colden%s.fits' % (USER.file_savetau, suffix)
                 else:         '%s_colden%s_%03d.fits' % (USER.file_savetau, suffix, idir)
+=======
+                if (NDIR==1): filename = '%s_colden%s.fits'      % (USER.file_savetau, suffix)
+                else:         filename = '%s_colden%s_%03d.fits' % (USER.file_savetau, suffix, idir)
+>>>>>>> 8ffa23b (Exclude Oclgrind from device selection. Added environmental variable)
                 FFF.writeto(filename, overwrite=True)
             if (save_tau>0):                                   # save optical depth
                 cl.enqueue_copy(commands[0], MAP, SAVETAU_buf) # same number of pixels as MAP
                 if (using_fits):
+<<<<<<< HEAD
+=======
+                    FFF = MakeFits(USER.FITS_RA, USER.FITS_DE, USER.GL*USER.MAP_DX/[1000.0, USER.DISTANCE][USER.DISTANCE>0.0], USER.NPIX['x'], USER.NPIX['y'], [], sys_req='fk5')
+>>>>>>> 8ffa23b (Exclude Oclgrind from device selection. Added environmental variable)
                     FFF[0].data = MAP
                     if (NDIR==1): filename = '%s_tau_%s%s.fits' % (USER.file_savetau, ums, suffix)
                     else:         filename = '%s_tau_%s%s_%03d.fits' % (USER.file_savetau, ums, suffix, idir)

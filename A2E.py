@@ -198,32 +198,59 @@ def PlanckSafe(f, T):  # Planck function
 t0 = time.time()
 platform, device, context, queue = None, None, None, None
 LOCAL = 16 
-platforms = arange(4)
+platforms = arange(5)
 if (fmod(GPU,1.0)>0):  platforms = [ int(10*fmod(GPU,1)), ] # platform is the number after decimal point
 ok = False
 # print("--------------------------------------------------------------------------------")
+sdevice = ''
+try:
+    sdevice = os.environ['OPENCL_SDEVICE']
+except:
+    sdevice = ''
+    
 for itry in range(2):
     for iplatform in platforms:
+        print("platform %d" % iplatform)
         try:
-            # print("LOOKING FOR %s" % ['CPU', 'GPU'][GPU>=1.0])
-            # print("iplatform=%d" % iplatform)
             platform = cl.get_platforms()[iplatform]
-            # print("platform=", platform)
+            print(platform)
             if (GPU>=1.0):
-                device   = platform.get_devices(cl.device_type.GPU)
-                # print("GPU DEVICE", device)
+                devices  =  platform.get_devices(cl.device_type.GPU)
+                for idevice in range(len(devices)):
+                    device = [ devices[idevice] ]
+                    print("---------------- GPU device name = ", device[0].name)
+                    if ('Oclgrind' in device[0].name):
+                        device = []
+                    elif (sdevice!=''):
+                        if (not(sdevice in device[0].name)):
+                            device = []
+                    if (len(device)>0):
+                        print("device %s ok" % device[0].name)
+                    if (len(device)>0): 
+                        break
                 LOCAL    = 32  #  64 -> 32, TS test = no effect
             else:
-                device   = platform.get_devices(cl.device_type.CPU)
-                # print("CPU DEVICE", device)
-                LOCAL    =  8
-            context  = cl.Context(device)
-            queue    = cl.CommandQueue(context)
-            ok       = True
-            break
+                devices  =  platform.get_devices(cl.device_type.CPU)
+                for idevice in range(len(devices)):
+                    device = [ devices[idevice] ]
+                    print("---------------- CPU device name = ", device[0].name)
+                    if ('Oclgrind' in device[0].name):
+                        device = []                        
+                    elif (sdevice!=''):
+                        if (not(sdevice in device[0].name)): device = []
+                    if (len(device)>0):
+                        break
+                LOCAL    = 8
+            if (len(device)>0):
+                print(' ... %s ok' % device[0].name)
+                context  = cl.Context(device)
+                queue    = cl.CommandQueue(context)
+                ok       = True
+                break
         except:
+            print('X')            
             pass
-    if (ok==True): break
+    if (ok==True): break        # device found, break itry loop
     if (itry==0):
         platforms = arange(4)   # perhaps user had wrong platform... try to find any working
     else:
@@ -231,7 +258,7 @@ for itry in range(2):
         print("*** ERROR:   A2E.py failed to find any working OpenCL platform !!!")
         time.sleep(10)
         sys.exit()
-#print("--------------------------------------------------------------------------------")
+print("--------------------------------------------------------------------------------")
 
 
 GLOBAL      =  max([BATCH,64*LOCAL])

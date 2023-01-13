@@ -1,4 +1,5 @@
-#!/bin/python
+#!/usr/bin/env python
+
 from MJ.mjDefs import *
 import mmap
 from MJ.Aux.mjGPU import *

@@ -50,7 +50,7 @@ __kernel void PrepareTdown(const    int     NFREQ,       // number of frequencie
    yy0  =  0.0 ;         
    i    =  0 ;            
    I    =  0.0 ;
-   while (Ef[i+1]<Eu && (i<(NFREQ-1))) {
+   while ((i<(NFREQ-1)) && Ef[i+1]<Eu) {
       ee0  =  Ef[i] ;
       // In A2ELIB, SKabs_Int() uses Interpolate0 for frequency interp... which is linear interpolation
       x    =  Interpolate(NFREQ, FREQ, SKABS, ee0/PLANCK) ; // this apparently fine on linear scale...

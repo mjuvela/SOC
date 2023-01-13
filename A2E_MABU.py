@@ -181,6 +181,8 @@ for idust in range(NDUST):
         print("=== SHG")
         fp     = open('%s.solver' % DUST[idust], 'rb') # solver will be called aSilx.solver, not gs_aSilx.solver...
         NFREQ  = np.fromfile(fp, np.int32, 1)[0]
+        print("A2E_MABU ==>  %30s  HAS %3d FREQUENCIES" % (DUST[idust], NFREQ))
+        ## sys.exit()
         FREQ   = np.fromfile(fp, np.float32, NFREQ)
         GD     = np.fromfile(fp, np.float32, 1)[0]
         NSIZE  = np.fromfile(fp, np.int32, 1)[0]
@@ -284,10 +286,16 @@ def opencl_init(GPU, platforms, verbose=False):
     """
     Initialise OpenCL environment.
     """
-    print("=== opencl_init ===", GPU, platforms)
+    print("=== opencl_init === GPU, platforms ", GPU, platforms)
     platform, device, context, queue = None, None, None, None
     ok = False
     # print("........... platforms ======", platforms)
+    sdevice = ''
+    try:
+        sdevice = os.environ['OPENCL_SDEVICE']
+    except:
+        sdevice = ''
+    ####
     for iii in range(2):
         for iplatform in platforms:
             tmp = cl.get_platforms()
@@ -304,6 +312,11 @@ def opencl_init(GPU, platforms, verbose=False):
                     device  = platform.get_devices(cl.device_type.GPU)
                 else:
                     device  = platform.get_devices(cl.device_type.CPU)
+                if ('Oclgrind' in device[0].name):
+                    device = []
+                elif (len(sdevice)>0):
+                    if (not(sdevice in device[0].name)):
+                        device = []
                 context  = cl.Context(device)
                 queue    = cl.CommandQueue(context)
                 ok       = True

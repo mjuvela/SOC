@@ -192,7 +192,7 @@ class User:
         self.OPT_IS_HALF  = 0
         self.POL_RHO_WEIGHT = 0 
         self.savetau_freq =  []       # if >0, save tau map instead of column density map
-        self.pssavetau_freq = -1.0     # if >0, save tau map instead of column density map
+        self.pssavetau_freq = -1.0    # if >0, save tau map instead of column density map
         
         self.ROI           = zeros(6, int32)   # ROI limits in root grid cells [x0,x1,y0,y1,z0,z1] = [x0:(x1+1), ...]
         self.ROI_STEP      = 0       # for ROI_SAVE, subsampling of GL
@@ -238,6 +238,8 @@ class User:
             if (s[0].find('mapum')==0):
                 for ss in s[1:]:
                     self.SINGLE_MAP_FREQ.append( um2f(float(ss)) )
+                if (len(self.SINGLE_MAP_FREQ)>1):
+                    self.SINGLE_MAP_FREQ = sort(self.SINGLE_MAP_FREQ) # increasing frequency !!
                 print("ASOC: mapum ", self.SINGLE_MAP_FREQ)
 
             if (s[0]=='singleabu'):
@@ -268,8 +270,8 @@ class User:
                 #  if wavelength == -um[i], that means saving of column density
                 self.file_savetau  = s[1]
                 for x in s[2:]:
-                    if (abs(float(x))<1):  self.savetau_freq.append(0.0)  # meaning column density
-                    else:                  self.savetau_freq.append(um2f(float(x)))
+                    if (float(x)<1):  self.savetau_freq.append(0.0)  # meaning column density
+                    else:             self.savetau_freq.append(um2f(float(x)))
                 print("self.savetau_freq ", self.savetau_freq)
                     
             if (key.find('pssavetau')==0):
@@ -1128,15 +1130,22 @@ def opencl_init(USER, verbose=False):
     Initialise OpenCL environment.
     Input:
         USER      =  User object, including USER.DEVICES ('c'=CPU, 'g'=GPU)
-        platform  =  index of selected OpenCL platform (default=0)
     Return:
         context   =  array of compute contexts, one per device
         queue     =  array of command queues, one per device
     Note:
         use USER.PLATFORM (if given) and USER.DEVICES
+        USER.sDEVICE is not set but the routine does check environmental variable OPENCL_SDEVICE
+        (a string that would identify a device by a string in its name)
     """
+    print("opencl_init")
     platform, device, context, queue = [], [], [], []
     try_platforms    = arange(5)
+    sdevice = ''
+    try: 
+        sdevice = os.environ['OPENCL_SDEVICE']
+    except:
+        sdevice = ''
     if (USER.PLATFORM>=0): try_platforms = [USER.PLATFORM,]
     if (verbose):
         print("--------------------------------------------------------------------------------")
@@ -1148,11 +1157,17 @@ def opencl_init(USER, verbose=False):
             if ('g' in USER.DEVICES):
                 try:
                     device = [platform.get_devices(cl.device_type.GPU)[USER.IDEVICE],]
+                    if ('Oclgrind' in device[0].name): device = []
+                    if (sdevice!=''):
+                        if (not(sdevice in device[0].name)): device = []
                 except:
                     device = []
             if (('c' in USER.DEVICES)&(len(device)<1)):
                 try:
                     device = [platform.get_devices(cl.device_type.CPU)[USER.IDEVICE],]
+                    if ('Oclgrind' in device[0].name): device = []
+                    if (sdevice!=''):
+                        if (not(sdevice in device[0].name)): device = []
                 except:
                     device = []
                     continue
@@ -1196,12 +1211,14 @@ def opencl_init_s(USER, verbose=False):
     Note:
         When USER.sDEVICE is not '' (this routine is used), 
         selection is made based on USER.PLATFORM (if specified), USER.DEVICES, and USER.sDEVICE
+        USER.sDEVICE overrides the environmental variable OPENCL_SDEVICE
     """
+    print("opencl_init_s")
     try_platforms    = arange(5)     # check all platforms, checking for the device with the correct string
     if (USER.PLATFORM>=0): try_platforms = [USER.PLATFORM,] # or only platforms specified by the user
     platform, device, context, queue = None, [], None, None
     for iplatform in try_platforms:
-        # print("Try platform %d, with USER.DEVICES = " % iplatform, USER.DEVICES)
+        print("Try platform %d, with USER.DEVICES = " % iplatform, USER.DEVICES)
         try:
             platform  =  cl.get_platforms()[iplatform]
         except:
@@ -1212,15 +1229,18 @@ def opencl_init_s(USER, verbose=False):
                 print("---------------- GPU device name = ", devices[idevice].name)
                 if (USER.sDEVICE in devices[idevice].name):
                     device = [ devices[idevice] ]
-                    break
+                    if ('Oclgrind' in device[0].name): device = []
+                    else:                              break
         if (len(device)>0): break
         if ('c' in USER.DEVICES): # try all CPUs
             devices   = platform.get_devices(cl.device_type.CPU)
             for idevice in range(len(devices)):
                 print("---------------- CPU device name =  ", devices[idevice].name)
+                print(USER.sDEVICE, devices[idevice].name)
                 if (USER.sDEVICE in devices[idevice].name):
                     device = [ devices[idevice] ]
-                    break
+                    if ('Oclgrind' in device[0].name): device = []
+                    else:                              break
         if (len(device)>0): break
     if (len(device)<1):
         print("InitCL_string: could not find any device matching string: %s" % USER.sDEVICE)

@@ -45,6 +45,11 @@ def opencl_init(GPU, platforms, verbose=0):
     platform, device, context, queue = None, None, None, None
     ok = False
     # print("........... platforms ======", platforms)
+    sdevice = ''
+    try:
+        sdevice = os.environ['OPENCL_SDEVICE']
+    except:
+        sdevice = ''
     for iii in range(2):
         for iplatform in platforms:
             tmp = cl.get_platforms()
@@ -61,6 +66,11 @@ def opencl_init(GPU, platforms, verbose=0):
                     device  = platform.get_devices(cl.device_type.GPU)
                 else:
                     device  = platform.get_devices(cl.device_type.CPU)
+                if ('Oclgrind' in device[0].name):
+                    device = []
+                elif (sdevice!=''):
+                    if (not(sdevice in device[0].name)):
+                        device = []
                 context  = cl.Context(device)
                 queue    = cl.CommandQueue(context)
                 ok       = True

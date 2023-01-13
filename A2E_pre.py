@@ -90,15 +90,49 @@ if (0):
     
 # OpenCL initialisation --- kernel probably efficient only on CPU
 context, queue = None, None
-for iplatform in range(3):
+dev_found = False
+sdevice = ''
+try:
+    sdevice = os.environ['OPENCL_SDEVICE']
+except:
+    sdevice = ''
+    
+for iplatform in range(5):
     try:
         platform  = cl.get_platforms()[iplatform]
-        device  = platform.get_devices(cl.device_type.CPU)
-        context = cl.Context(device)
-        queue   = cl.CommandQueue(context)
+        device    = platform.get_devices(cl.device_type.CPU)
+        print(' ...', device[0].name)
+        if ('Oclgrind' in device[0].name): continue
+        if (sdevice!=''):
+            if (not(sdevice in device[0].name)): continue
+        # device  = platform.get_devices(cl.device_type.GPU)
+        context   = cl.Context(device)
+        queue     = cl.CommandQueue(context)
+        dev_found = True
+        print(' ... %s ok' % (device[0].name))
         break
     except:
         pass
+if (dev_found==False): # just as backup, pick a GPU devie
+    print("CPU not found, trying to find GPU...")
+    for iplatform in range(4):
+        try:
+            platform  = cl.get_platforms()[iplatform]
+            device    = platform.get_devices(cl.device_type.GPU)
+            print(' ...', device[0].name)
+            if ('Oclgrind' in device[0].name): continue
+            if (sdevice!=''):
+                if (not(sdevice in device[0].name)): continue
+            # device  = platform.get_devices(cl.device_type.GPU)
+            context   = cl.Context(device)
+            queue     = cl.CommandQueue(context)
+            dev_found = True
+            print(' ... %s ok ' % (device[0].name))            
+            break
+        except:
+            pass
+print("A2E_pre.py using device", device[0].name)
+
 src       =  open(INSTALL_DIR+"/kernel_A2E_pre.c").read()
 program   =  cl.Program(context, src).build(" -D FACTOR=%.4ef " % FACTOR)
 mf        =  cl.mem_flags 
