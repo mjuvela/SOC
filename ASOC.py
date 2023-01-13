@@ -2959,13 +2959,8 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
             if (using_fits):
                 if (NDIR==1): filename =  "%s_%s.fits"      % (USER.FITS_PREFIX, ums)
                 else:         filename =  "%s_%s_%03d.fits" % (USER.FITS_PREFIX, ums, idir)
-<<<<<<< HEAD
-                FFF = MakeFits(USER.FITS_RA, USER.FITS_DE, USER.GL*USER.MAP_DX/[1000.0, USER.DISTANCE][USER.DISTANCE>0.0], USER.NPIX['x'], USER.NPIX['y'], [], sys_req='fk5')
-                print(FFF)
-=======
                 #   pixel is fraction MAP_DX of the root cell, which is USER.GL pc... and distance is USER.DISTANCE pc
                 FFF = MakeFits(USER.FITS_RA, USER.FITS_DE, USER.GL*USER.MAP_DX/[1000.0, USER.DISTANCE][USER.DISTANCE>0.0], USER.NPIX['x'], USER.NPIX['y'], [], sys_req='fk5')
->>>>>>> 8ffa23b (Exclude Oclgrind from device selection. Added environmental variable)
                 FFF[0].data[:,:] = MAP
                 FFF.writeto(filename, overwrite=True)
             else:  
@@ -2975,21 +2970,13 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
                 FFF = MakeFits(USER.FITS_RA, USER.FITS_DE, USER.GL*USER.MAP_DX/[1000.0, USER.DISTANCE][USER.DISTANCE>0.0], USER.NPIX['x'], USER.NPIX['y'], [], sys_req='fk5')
                 cl.enqueue_copy(commands[0], MAP, SAVETAU_buf) # same number of pixels as MAP
                 FFF[0].data = MAP
-<<<<<<< HEAD
-                if (NDIR==1): '%s_colden%s.fits' % (USER.file_savetau, suffix)
-                else:         '%s_colden%s_%03d.fits' % (USER.file_savetau, suffix, idir)
-=======
                 if (NDIR==1): filename = '%s_colden%s.fits'      % (USER.file_savetau, suffix)
                 else:         filename = '%s_colden%s_%03d.fits' % (USER.file_savetau, suffix, idir)
->>>>>>> 8ffa23b (Exclude Oclgrind from device selection. Added environmental variable)
                 FFF.writeto(filename, overwrite=True)
             if (save_tau>0):                                   # save optical depth
                 cl.enqueue_copy(commands[0], MAP, SAVETAU_buf) # same number of pixels as MAP
                 if (using_fits):
-<<<<<<< HEAD
-=======
                     FFF = MakeFits(USER.FITS_RA, USER.FITS_DE, USER.GL*USER.MAP_DX/[1000.0, USER.DISTANCE][USER.DISTANCE>0.0], USER.NPIX['x'], USER.NPIX['y'], [], sys_req='fk5')
->>>>>>> 8ffa23b (Exclude Oclgrind from device selection. Added environmental variable)
                     FFF[0].data = MAP
                     if (NDIR==1): filename = '%s_tau_%s%s.fits' % (USER.file_savetau, ums, suffix)
                     else:         filename = '%s_tau_%s%s_%03d.fits' % (USER.file_savetau, ums, suffix, idir)
