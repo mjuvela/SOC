@@ -674,7 +674,7 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
                
 #if 1
                if (steps>1000) {
-                  printf("id=%6d, steps %d\n", id, steps) ;
+                  if (steps%1000==0) printf("id=%6d, steps %d\n", id, steps) ;
                   // return ;
                }
 #endif          

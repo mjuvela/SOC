@@ -65,7 +65,7 @@ for line in open(dfile, 'r').readlines():
     if (len(s)<4): continue
     if (s[0].find('tlimit')==0):
         Tmin, Tmax1, Tmax2 = float(s[1]), float(s[2]), float(s[3])
-print("Temperature limits in %s: Tmin %.1f, Tmax1 %.1f, Tmax2 %.1f" % (dfile, Tmin, Tmax1, Tmax2))
+# print("Temperature limits in %s: Tmin %.1f, Tmax1 %.1f, Tmax2 %.1f" % (dfile, Tmin, Tmax1, Tmax2))
                 
 # Calculate temperature limits for each size bin
 TMIN  = Tmin*ones(NSIZE, float32)
@@ -101,7 +101,7 @@ for iplatform in range(5):
     try:
         platform  = cl.get_platforms()[iplatform]
         device    = platform.get_devices(cl.device_type.CPU)
-        print(' ...', device[0].name)
+        # print(' ...', device[0].name)
         if ('Oclgrind' in device[0].name): continue
         if (sdevice!=''):
             if (not(sdevice in device[0].name)): continue
@@ -109,12 +109,12 @@ for iplatform in range(5):
         context   = cl.Context(device)
         queue     = cl.CommandQueue(context)
         dev_found = True
-        print(' ... %s ok' % (device[0].name))
+        # print(' ... %s ok' % (device[0].name))
         break
     except:
         pass
 if (dev_found==False): # just as backup, pick a GPU devie
-    print("CPU not found, trying to find GPU...")
+    # print("CPU not found, trying to find GPU...")
     for iplatform in range(4):
         try:
             platform  = cl.get_platforms()[iplatform]
@@ -127,7 +127,7 @@ if (dev_found==False): # just as backup, pick a GPU devie
             context   = cl.Context(device)
             queue     = cl.CommandQueue(context)
             dev_found = True
-            print(' ... %s ok ' % (device[0].name))            
+            # print(' ... %s ok ' % (device[0].name))            
             break
         except:
             pass
@@ -190,16 +190,15 @@ asarray(  SKABS,       float32 ).tofile(fp)   # SKAbs_Int()    ~     pi*a^2*Qabs
 
 # in the following Tdown needs SKABS ... but per grain => need to divide CRT_SFRAC
 
-print("NSIZE %d, NFREQ %d, NE %d" % (NSIZE, NFREQ, NE))
+# print("NSIZE %d, NFREQ %d, NE %d" % (NSIZE, NFREQ, NE))
 
 for isize in range(NSIZE):    
     
     # A2ELIB used logarithmically spaced energies
-    print("--------------------------------------------------------------------------------")
+    # print("--------------------------------------------------------------------------------")
     emin  =  DUST.T2E(isize, TMIN[isize])
     emax  =  DUST.T2E(isize, TMAX[isize])
-    print("nsize [%3d] %9.4f um  E %.3e - %.3e  T = %5.2f - %7.2f K" % \
-    (isize, DUST.SIZE_A[isize]*1.0e4, emin, emax, TMIN[isize], TMAX[isize]))
+    # print("nsize [%3d] %9.4f um  E %.3e - %.3e  T = %5.2f - %7.2f K" % (isize, DUST.SIZE_A[isize]*1.0e4, emin, emax, TMIN[isize], TMAX[isize]))
     
     if (0): # 
         E     =  exp(log(emin)+(arange(NEPO)/float(NE))*(log(emax)-log(emin))) # NEPO elements
@@ -233,9 +232,9 @@ for isize in range(NSIZE):
     cl.enqueue_copy(queue, Tdown, Tdown_buf)    # --> Tdown
     ### Tdown /= DUST.CRT_SFRAC[isize]   # GRAIN_DENSITY already in CRT_SFRAC !! --- division already in SKABS
     Tdown.tofile(fp)
-    print('T %.3e - %.3f  E %.3e - %.3e   Ef %.3e - %.3e' % (T[0], T[-1], E[0], E[-1], Ef[0], Ef[-1]))
+    # print('T %.3e - %.3f  E %.3e - %.3e   Ef %.3e - %.3e' % (T[0], T[-1], E[0], E[-1], Ef[0], Ef[-1]))
     # print('SKABS ', SKABS[isize, 0:5], SKABS[isize, -5:])
-    print(Tdown[0:4])
+    # print(Tdown[0:4])
     
     # Prepare EA[ifreq, iE]  <---- storage order!
     TC  =  DUST.E2T(isize, 0.5*(E[0:NE]+E[1:])) # NE temperatures for the *centre* of each energy bin

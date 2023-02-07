@@ -68,11 +68,8 @@ The same with variable abundances:
 
 
 EMWEI2_STEP = 100
-#if 0
-ADHOC       = 1.0e-10
-#else
+# ADHOC       = 1.0e-10
 ADHOC       = 1.0
-#endif
 
 
 # TODO -- looks like in PS simulation the single CPU thread is working at 100%
@@ -161,7 +158,7 @@ DIFFUSERAD        =  mmap_diffuserad(USER, CELLS)   # memory mapped => do not sc
 DEVICES           =  1   # !!
 KDEV              =  1.0/DEVICES
 KDEV              =  1.0  # here only one device !!
-
+VERBOSE           =  USER.VERBOSE
 
 if (0): # testing
     print("********************************************************************************")
@@ -185,8 +182,8 @@ if (USER.LIB_MAPS): # always maps for all the FSELECT frequencies (with LIB_MAPS
     REMIT_I1, REMIT_I2 = 0, NFREQ-1
     REMIT_NFREQ        = NFREQ    # only FSELECT frequencies in the final map loop
 USER.REMIT_NFREQ, USER.REMIT_I1, USER.REMIT_I2 = REMIT_NFREQ, REMIT_I1, REMIT_I2
-print("Emitted data for channels [%d, %d], %d out of %d channels" % (REMIT_I1, REMIT_I2, REMIT_NFREQ, NFREQ))
-print("     %.3e - %.3e Hz" % (USER.REMIT_F[0], USER.REMIT_F[1]))
+# print("Emitted data for channels [%d, %d], %d out of %d channels" % (REMIT_I1, REMIT_I2, REMIT_NFREQ, NFREQ))
+# print("     %.3e - %.3e Hz" % (USER.REMIT_F[0], USER.REMIT_F[1]))
 # We can have REMIT_NFREQ<NFREQ only if cell emission is not included in the calculation
 if ((REMIT_NFREQ<NFREQ) & ((USER.ITERATIONS>0) & (USER.CLPAC>0))):
     print("NFREQ=%d, REMIT_NFREQ=%d -- cannot be if ITERATIONS=%d, CLPAC=%d>0" %
@@ -227,7 +224,7 @@ else:
     if (USER.DFPAC>0):
         DFPAC = Fix(Fix(USER.DFPAC, CELLS), LOCAL) # multiple of both LOCAL and CELLS
 # Either CLPAC==DFPAC or CLPAC=0 and DFPAC>=0
-print('PACKETS: PSPAC %d   BGPAC %d  CLPAC %d  DFPAC %d' % (PSPAC, BGPAC, CLPAC, DFPAC))
+if (VERBOSE): print('PACKETS: PSPAC %d   BGPAC %d  CLPAC %d  DFPAC %d' % (PSPAC, BGPAC, CLPAC, DFPAC))
 asarray([BGPAC, PSPAC, DFPAC, CLPAC], int32).tofile('packet.info')
 
 if (USER.ITERATIONS<1):
@@ -272,7 +269,7 @@ if (len(USER.file_hpbg)>2):
     # We use healpix maps for the background sky intensity... 
     #   currently *fixed* at NSIDE=64 which gives ~55 arcmin pixels, 49152 pixels on the sky
     #   1000 frequencies ~ 188 MB => just read all in
-    print("*** Healpix background %s, user scaling %.3e ***" % (USER.file_hpbg, USER.scale_background))
+    if (VERBOSE): print("*** Healpix background %s, user scaling %.3e ***" % (USER.file_hpbg, USER.scale_background))
     HPBG = fromfile(USER.file_hpbg, float32).reshape(NFREQ, 49152) * USER.scale_background
     
     
@@ -293,13 +290,13 @@ if (USER.DO_SPLIT):
     # change  GLOBAL_SPLIT so that SELEM*GLOBAL >= AREA but not more
     GLOBAL_SPLIT  =  Fix((USER.AREA//SELEM)+1, LOCAL)
 
-print("PS_METHOD=%d, WITH_ABU=%d, WITH_MSF=%d" % (USER.PS_METHOD, WITH_ABU, WITH_MSF))
+if (VERBOSE): print("PS_METHOD=%d, WITH_ABU=%d, WITH_MSF=%d" % (USER.PS_METHOD, WITH_ABU, WITH_MSF))
 
 MIRROR =  1*('x' in USER.MIRROR)+ 2*('X' in USER.MIRROR)+  \
           4*('y' in USER.MIRROR)+ 8*('Y' in USER.MIRROR)+  \
          16*('z' in USER.MIRROR)+32*('Z' in USER.MIRROR)
 
-print("*** MIRROR *** ", MIRROR)
+if (VERBOSE): print("*** MIRROR *** ", MIRROR)
 
 ARGS = "-D NX=%d -D NY=%d -D NZ=%d -D BINS=%d -D WITH_ALI=%d -D PS_METHOD=%d -D FACTOR=%.4ef \
 -D CELLS=%d -D AREA=%.0f -D NO_PS=%d -D WITH_ABU=%d -D ROI_MAP=%d -D MAX_SPLIT=%d -D SELEM=%d \
@@ -364,10 +361,8 @@ else:
     # one uses keyword sdevice to specify a string in the name of the device
     context, commands =  opencl_init_s(USER, 1)
 # fixed NSIDE=128 for the PS and BG simulations?
-print("get_program ...")
 program           =  get_program(context, commands, source, ARGS + " -D NSIDE=%d" % 128)
 mf                =  cl.mem_flags
-print("get_program ... ok")
 
 # A set of buffers needed by emission calculations
 LCELLS_buf, OFF_buf, PAR_buf, DENS_buf, EMIT_buf, DSC_buf, CSC_buf = [], [], [], [], [], [], []
@@ -394,9 +389,6 @@ NEED_EMIT_BUF = (USER.LOAD_TEMPERATURE) | (DFPAC>0) | (CLPAC>0) | (not(USER.NOSO
               | ('SUBITERATIONS' in USER.KEYS) | (not(USER.NOMAP)) | (USER.POLMAP>0)
 # print("NEED_EMIT_BUF = %d" % NEED_EMIT_BUF)
 
-
-
-print("context", context)
 
 for ID in range(DEVICES):
     LCELLS_buf.append( cl.Buffer(context[ID], mf.READ_ONLY,  LCELLS.nbytes))
@@ -497,7 +489,7 @@ for ID in range(DEVICES):
 
         
 
-print('EMWEI %d, SAVE_INTENSITY %d' % (USER.USE_EMWEIGHT, USER.SAVE_INTENSITY))
+if (VERBOSE): print('EMWEI %d, SAVE_INTENSITY %d' % (USER.USE_EMWEIGHT, USER.SAVE_INTENSITY))
 
 
 # Emission weighting
@@ -538,7 +530,7 @@ kernel_parents = []
 GLOBAL  = GLOBAL_0
 for ID in range(DEVICES):
     kernel_parents.append(program[ID].Parents)  # initialisation of links to cell parents
-    print("LOCAL %d, GLOBAL %d" % (LOCAL, GLOBAL))
+    if (VERBOSE): print("LOCAL %d, GLOBAL %d" % (LOCAL, GLOBAL))
     kernel_parents[ID](commands[ID], [GLOBAL,], [LOCAL,], DENS_buf[ID], LCELLS_buf[ID], OFF_buf[ID], PAR_buf[ID])
     commands[ID].finish()
     
@@ -556,10 +548,10 @@ if (0): # -cl-unsafe-math-optimizations caused some DENS values to appear as zer
 # With LIB_MAPS, emitted file contains only a subset of frequencies == USER.FSELECT
 # => make sure EMITTED is still read and not zeroed
 if (USER.LIB_MAPS):
-    print("### ASOC WITH LIB_MAPS =>  ASSUME EMITTED %d CELLS x  %d FREQUENCIES" % (CELLS, len(USER.FSELECT)))    
+    if (VERBOSE): print("### ASOC WITH LIB_MAPS =>  ASSUME EMITTED %d CELLS x  %d FREQUENCIES" % (CELLS, len(USER.FSELECT)))    
     EMITTED  = mmap_emitted(USER, CELLS, LEVELS, LCELLS, len(USER.FSELECT), OFF, DENS)  # EMITTED[CELLS, REMIT_NFREQ]
 elif (USER.LIB_ABS): #  only emission at USER.FSLECT frequencies = reference frequencies
-    print("### ASOC WITH LIB_ABS =>  EMITTED %d CELLS  x   %d FREQUENCIES" % (CELLS, len(USER.FSELECT)))
+    if (VERBOSE): print("### ASOC WITH LIB_ABS =>  EMITTED %d CELLS  x   %d FREQUENCIES" % (CELLS, len(USER.FSELECT)))
     # IN FACT THIS RUN WILL NOT DO NOTHING WITH EMITTED... APART FROM AS DIFFUSE RADIATION SOURCE ?
     EMITTED  = mmap_emitted(USER, CELLS, LEVELS, LCELLS, len(USER.FSELECT), OFF, DENS)
 else:
@@ -574,7 +566,7 @@ FABSORBED = None
 if (not(USER.NOABSORBED)): # we store absorptions at all frequencies, use mmap array FABSORBED
     # This is required by A2E ... DustEm uses the file_intensity instead
     # If LIB_ABS is true, absorption file will contain only frequencies USER.FSELECT => ONFREQ frequencies
-    print("**** OPEN ABSORPTION FILE ****\n")
+    if (VERBOSE): print("**** OPEN ABSORPTION FILE ****\n")
     fp  =  open(USER.file_absorbed, "wb")
     asarray([CELLS, ONFREQ], int32).tofile(fp)  # 2018-12-29 dropped "levels" from the absorbed/emitted files
     fp.close()
@@ -624,9 +616,10 @@ if (not(USER.NOSOLVE)):  # Calculate mapping T <-> E
     oplgkE = 1.0/log10(kE)
     ip     = interp1d(Eout, TT)           # (linear) interpolation from energy to temperature
     TTT    = asarray(ip(Emin * kE**arange(NE)), float32)
-    print("Mapping E -> T calculated on host: %.3f seconds" % (time.time()-t1))
-    print("Emin= %.3e, Emax= %.3e, kE= %.6f,  NE= %d, kE**(NE-1)= %.3e" % (Emin, Emax, kE, NE, kE**(NE-1.0)))
-    print("TTT %.3e - %.3e" % (TTT[0], TTT[NE-1]))
+    if (VERBOSE):
+        print("Mapping E -> T calculated on host: %.3f seconds" % (time.time()-t1))
+        print("Emin= %.3e, Emax= %.3e, kE= %.6f,  NE= %d, kE**(NE-1)= %.3e" % (Emin, Emax, kE, NE, kE**(NE-1.0)))
+        print("TTT %.3e - %.3e" % (TTT[0], TTT[NE-1]))
     ## sys.exit()
 
     
@@ -640,11 +633,11 @@ the simulation.
 # Try to read old temperatures
 TNEW         = None
 if (USER.LOAD_TEMPERATURE):
-    print("Trying to read old temperatures: %s" % (USER.file_temperature))
+    if (VERBOSE): print("Trying to read old temperatures: %s" % (USER.file_temperature))
     try:
         TNEW     = read_otfile(USER.file_temperature)
         if (len(TNEW)<CELLS):
-            print("Old temperature file contained %d < %d temperature values" % (len(TNEW),CELLS))
+            if (VERBOSE): print("Old temperature file contained %d < %d temperature values" % (len(TNEW),CELLS))
             # One may have added another hierarchy level...
             if (len(TNEW)!=(CELLS-LCELLS[LEVELS-1])):            
                 throw(1)   # no -- we cannot use the old file
@@ -662,7 +655,7 @@ if (USER.LOAD_TEMPERATURE):
     if (len(TNEW)==(CELLS-LCELLS[LEVELS-1])):
         # presumably hierarchy has an additional level -> copy values from 
         # LEVELS-2 to LEVELS-1
-        print("Copy temperatures level %d -> level %d" % (LEVELS-2, LEVELS-1))
+        if (VERBOSE): print("Copy temperatures level %d -> level %d" % (LEVELS-2, LEVELS-1))
         if (0):
             clf()
             plot(TNEW, 'mx')    
@@ -690,15 +683,13 @@ if ((USER.LOAD_TEMPERATURE)&(USER.ITERATIONS<1)):
     """
     # temperature_to_emitted(USER, EMITTED)  # updates EMITTED, values will be written to file
     if (0):
-        print('*'*80)
         print("temperature_to_emitted_inmem")
         temperature_to_emitted_inmem(USER, TNEW, EMITTED)  # updates EMITTED, values will be written to file
         print('*'*80)
     else:
         # 2019-01-15
         # use Emission() kernel routine
-        print('*'*80)
-        print("temperature_to_emitted --- in kernel")
+        if (VERBOSE): print("temperature_to_emitted --- in kernel")
         kernel_emission = program[0].Emission
         kernel_emission.set_scalar_arg_dtypes([np.float32, np.float32, None, None, None])
         cl.enqueue_copy(commands[0], EMIT_buf[0], TNEW)
@@ -746,9 +737,8 @@ if (USER.WITH_REFERENCE>0):
             # first iteration of this run == iteration >1 of all the runs ==  SOC continues from an old run
             OEMITTED[:,:] = fromfile('OEMITTED.save', float32).reshape(CELLS, REMIT_NFREQ)
             OTABS[:]      = fromfile('OTABS.save', float32)
-            print('1'*80)
-            print('1   OEMITTED %12.4e, OTABS %12.4e' % (mean(ravel(OEMITTED)), mean(OTABS)))
-            print('1'*80)
+            if (VERBOSE): print('1   OEMITTED %12.4e, OTABS %12.4e' % (mean(ravel(OEMITTED)), mean(OTABS)))
+
 OXAB, OXEM   = None, None
 if ((USER.WITH_ALI)&(USER.WITH_REFERENCE)):  # 2019-02-19 added the second condition
     OXAB     = zeros(CELLS, float32)   # self-absorptions for the reference simulation
@@ -957,7 +947,7 @@ if (len(USER.file_constant_load)>0):
     # Absorbed energy per cell for the constant sources (all except the dust emissions)
     # CLOAD => CONSTANT SOURCES NOT SIMULATED
     # WE HAVE SEPARATE LOOP FOR CELL EMISSION.... WHICH ALSO INCLUDES THE OPTIONAL T SOLUTION !!
-    print("=== CLOAD => %s" % USER.file_constant_load,)
+    if (VERBOSE): print("=== CLOAD => %s" % USER.file_constant_load,)
     CTABS = fromfile(USER.file_constant_load, float32, CELLS)
     if (USER.SAVE_INTENSITY>0):
         print("*** WARNING: USER.file_constant_load + USER.SAVE_INTENSITY ???")
@@ -969,7 +959,7 @@ else:
     #    do DFPAC here, separate of CLPAC, to avoid complications with ALI
     skip  =  USER.EMWEIGHT_SKIP-1
     for II in range(4):  # PSPAC, BGPAC, DFPAC, ROI-background
-        print("=== CONSTANT SOURCES II=%d" % II)
+        print("=== SIMULATE CONSTANT SOURCES II=%d" % II)
         if (USER.ITERATIONS<1): continue
         
         if (II==0):   # point sources
@@ -985,7 +975,7 @@ else:
             BATCH   *=  USER.NO_PS   # because each work item loops over ALL point sources
             PSPAC   *=  USER.NO_PS   # total number of packages (including all sources)
             PACKETS  =  PSPAC
-            print("=== PS  GLOBAL %d x BATCH %d = %d" % (GLOBAL, BATCH, PSPAC))
+            if (VERBOSE): print("=== PS  GLOBAL %d x BATCH %d = %d" % (GLOBAL, BATCH, PSPAC))
         elif (II==1): # background -- GLOBAL == surface area, BATCH>=1
             if (BGPAC<1): continue
             # We may not have many surface elements -> GLOBAL remains too small
@@ -999,7 +989,7 @@ else:
                 BGPAC    =  GLOBAL*BATCH
                 WBG      =  np.pi/PLANCK
                 WBG     /=  (GLOBAL*BATCH)/(2*(NX*NY+NX*NZ+NY*NZ))    # /= packages per element
-                print("=== HPBG: BGPAC %d, BATCH %d, GLOBAL %d, LOCAL %d ===" % (BGPAC, BATCH, GLOBAL, LOCAL))
+                if (VERBOSE): print("=== HPBG: BGPAC %d, BATCH %d, GLOBAL %d, LOCAL %d ===" % (BGPAC, BATCH, GLOBAL, LOCAL))
             else:
                 BATCH    =  max([1, int(round(BGPAC/(8*USER.AREA)))]) # packets per 
                 BGPAC    =  int(8*USER.AREA*BATCH)     # GLOBAL >= 8*AREA !!
@@ -1010,15 +1000,18 @@ else:
                 if (USER.DO_SPLIT):
                     # AREA*BATCH == BGPAC,    GLOBAL_SPLIT*SELEM >= AREA
                     # work item loops over SELEM surface elements, sends BATCH packages per surface element
-                    print("*** DO SPLIT ***")
-                    print("%d / %d = %d" % (USER.BGPAC, USER.AREA, max([1, int(USER.BGPAC/USER.AREA)])))
+                    if (VERBOSE): 
+                        print("*** DO SPLIT ***")
+                        print("%d / %d = %d" % (USER.BGPAC, USER.AREA, max([1, int(USER.BGPAC/USER.AREA)])))
                     BATCH   =  max([1, int(USER.BGPAC/USER.AREA)])  # rays per element == BATCH
                     BGPAC   =  int(USER.AREA*BATCH)                 # corrected number of rays
                     WBG     =  np.pi/(PLANCK*BATCH)                 # BATCH rays per surface element
-                    print("===== SPLIT: GLOBAL_SPLIT %d x SELEM %d = %d >= AREA %d x BATCH %d = %d = BGPAC %d =====\n" %
-                    (GLOBAL_SPLIT, SELEM, GLOBAL_SPLIT*SELEM, USER.AREA, BATCH, USER.AREA*BATCH, BGPAC))
+                    if (VERBOSE): 
+                        print("===== SPLIT: GLOBAL_SPLIT %d x SELEM %d = %d >= AREA %d x BATCH %d = %d = BGPAC %d =====\n" %
+                        (GLOBAL_SPLIT, SELEM, GLOBAL_SPLIT*SELEM, USER.AREA, BATCH, USER.AREA*BATCH, BGPAC))
                 else:
-                    print("=== BG: BGPAC %d, BATCH %d, GLOBAL %d, LOCAL %d ===" % (BGPAC, BATCH, GLOBAL, LOCAL))
+                    if (VERBOSE): 
+                        print("=== BG: BGPAC %d, BATCH %d, GLOBAL %d, LOCAL %d ===" % (BGPAC, BATCH, GLOBAL, LOCAL))
             PACKETS  =  BGPAC            
             # sys.exit()
         elif (II==2):      # diffuse emission
@@ -1028,7 +1021,8 @@ else:
             if (DFPAC<1): continue            # ??? THIS MAY BE >0 EVEN WHEN NO DIFFUSE FIELD USED ??
             BATCH    =  int(DFPAC/CELLS)
             PACKETS  =  DFPAC                
-            print("=== DFPAC %d, GLOBAL %d, BATCH %d, LOCAL %d" % (DFPAC, GLOBAL, BATCH, LOCAL))
+            if (VERBOSE): 
+                print("=== DFPAC %d, GLOBAL %d, BATCH %d, LOCAL %d" % (DFPAC, GLOBAL, BATCH, LOCAL))
         elif (II==3):     # II==3  ----- ROI background --- ROI should contain real photons
             # *** ROIPAC ***
             #   one work item per surface element = max ROIPAC work items
@@ -1043,9 +1037,10 @@ else:
             # i.e. BATCH must be multiple >=1 of the number of healpix pixels
             GLOBAL  =  Fix(GLOBAL, LOCAL)                     # possibly increase to make divisible by LOCAL
             PACKETS =  ROI_LOAD_NELEM                         # use PACKETS only to store number of surface elements
-            print("================================================================================")
-            print("ROI --- GLOBAL %d, BATCH %d, ROI_LOAD_NELEM %d, ROI_LOAD_NPIX %d, PACKETS %d" % (GLOBAL, BATCH, ROI_LOAD_NELEM, ROI_LOAD_NPIX, PACKETS))
-            print("================================================================================")
+            if (VERBOSE): 
+                print("================================================================================")
+                print("ROI --- GLOBAL %d, BATCH %d, ROI_LOAD_NELEM %d, ROI_LOAD_NPIX %d, PACKETS %d" % (GLOBAL, BATCH, ROI_LOAD_NELEM, ROI_LOAD_NPIX, PACKETS))
+                print("================================================================================")
             
         # This will set TABS == 0.0 --- in this loop over II, TABS is always 
         #   just for one radiation field component
@@ -1061,7 +1056,7 @@ else:
             if (USER.LIB_ABS): 
                 # Simulation for the library method, FSELECT contains the reference frequencies
                 if (np.min(abs((FREQ-USER.FSELECT)/FREQ))>0.001):
-                    print("...not reference frequency")
+                    if (VERBOSE): print("...not reference frequency")
                     continue
             OIFREQ += 1 
 
@@ -1071,7 +1066,7 @@ else:
             
             # INTENSITY has been zeroed -> skip some unimportant frequencies that will remain 0
             if ((FREQ<USER.SIM_F[0])|(FREQ>USER.SIM_F[1])):
-                print("FREQ %.3e outside [%.3e, %.3e]" % (FREQ, USER.SIM_F[0], USER.SIM_F[1]))
+                if (VERBOSE): print("FREQ %.3e outside [%.3e, %.3e]" % (FREQ, USER.SIM_F[0], USER.SIM_F[1]))
                 continue            
             
             # single dust            => we use ABS[1] and SCA[1]  
@@ -1108,9 +1103,9 @@ else:
             cl.enqueue_copy(commands[ID], ABS_buf[ID], ABS) 
             cl.enqueue_copy(commands[ID], SCA_buf[ID], SCA)
        
-
-            sys.stdout.write("  FREQ %3d/%3d  %10.3e" % (IFREQ+1, NFREQ, FREQ))
-            sys.stdout.flush()
+            if (VERBOSE):
+                sys.stdout.write("  FREQ %3d/%3d  %10.3e" % (IFREQ+1, NFREQ, FREQ))
+                sys.stdout.flush()
             
             kernel_zero(commands[ID],[GLOBAL,],[LOCAL,],1,TABS_buf[ID],XAB_buf[ID],INT_buf[ID],INTX_buf[ID],INTY_buf[ID],INTZ_buf[ID])
             
@@ -1155,9 +1150,10 @@ else:
             
                 
             Tpre = time.time()-Tpre
-                
-            sys.stdout.write("   BG %12.4e  PS %12.4e   TW %10.3e" % (BG, PS[0], FF))
-            sys.stdout.flush()
+            
+            if (VERBOSE):
+                sys.stdout.write("   BG %12.4e  PS %12.4e   TW %10.3e" % (BG, PS[0], FF))
+                sys.stdout.flush()
             T000 = time.time()
             
             # Upload to device new DSC, CSC, possibly also EMIT
@@ -1222,7 +1218,7 @@ else:
                         cl.enqueue_copy(commands[ID], EMWEI_buf[ID], EMWEI)
                         m        = nonzero(EMWEI>0.0)
                         # print('     Update EMWEI -> DFPAC=%d' % len(m[0]))
-                        print(' DFPAC=%d ' % len(m[0]))
+                        if (VERBOSE): print(' DFPAC=%d ' % len(m[0]))
                         # print('EMWEIGHT', prctile(EMWEI, (0, 10, 50, 90, 100)))
                 # ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -1252,7 +1248,7 @@ else:
                     OPT_buf[ID], ABU_buf[ID])
                 else:
                     # *** DFPAC + WITH_ROI_SAVE ***
-                    print("               WITH_ROI_SAVE --- kernel_ram_cl")
+                    # print("               WITH_ROI_SAVE --- kernel_ram_cl")
                     kernel_ram_cl(commands[ID], [GLOBAL,], [LOCAL,],
                     np.int32(II), PACKETS, BATCH, seed, ABS_buf[ID], SCA_buf[ID], FF,
                     LCELLS_buf[ID], OFF_buf[ID], PAR_buf[ID], DENS_buf[ID], EMIT_buf[ID],
@@ -1409,7 +1405,7 @@ else:
                 # scale away the dependence on the current GL
                 tmp  *= USER.GL*USER.GL
                 ROI_SAVE[IFREQ, :] += tmp   # += because we may have PS and BG and even ROI in this loop
-                print("ROI +=  %12.4e\n" % sum(tmp))
+                if (VERBOSE): print("ROI +=  %12.4e\n" % sum(tmp))
                 tmp = None
 
                 
@@ -1428,7 +1424,6 @@ else:
                         # += because we have PS, BG, diffuse emission separately
                         INTENSITY[a:b, IFREQ] +=  coeff * TMP[a:b] / DENS[a:b]
             if (USER.SAVE_INTENSITY==2):
-                print()
                 for icomp in range(4):
                     BUFS = [INT_buf[ID], INTX_buf[ID], INTY_buf[ID], INTZ_buf[ID]]
                     cl.enqueue_copy(commands[ID], TMP, BUFS[icomp])
@@ -1443,9 +1438,10 @@ else:
                         # others will be later divided by INTENSITY[:,:,0]
                 
             Tpost = time.time()-Tpost
-            sys.stdout.write('   %7.2f\n' % (time.time()-T000))
-            #sys.stdout.write(' push %7.2f pre %7.2f\n' % (Tpush, Tpre))
-            sys.stdout.flush()
+            if (VERBOSE):
+                sys.stdout.write('   %7.2f\n' % (time.time()-T000))
+                #sys.stdout.write(' push %7.2f pre %7.2f\n' % (Tpush, Tpre))
+                sys.stdout.flush()
             
             if (0): 
                 print("PAUSING 10...")
@@ -1464,10 +1460,11 @@ else:
         CTABS  +=   EMIT   # integrated energy -- sum of all constant components
 
         # @@
-        if (len(CTABS)<1e8):
-            print('='*80)
-            print("******  CONSTANT   %10s   CTABS -> %12.4e" % (['PS', 'BG', 'DE', 'ROI'][II], mean(CTABS)))
-            print('='*80)
+        if (VERBOSE): 
+            if (len(CTABS)<1e8):
+                print('='*80)
+                print("******  CONSTANT   %10s   CTABS -> %12.4e" % (['PS', 'BG', 'DE', 'ROI'][II], mean(CTABS)))
+                print('='*80)
         
     # end of -- for II = three kinds of constant sources
     # CTABS contains the absorbed energy due to sources all except the dust in the medium
@@ -1480,8 +1477,9 @@ else:
     
     
         
-if (len(CTABS)<1e8):
-    print("=== FINAL CTABS  = %.3e" % mean(CTABS))
+if (VERBOSE): 
+    if (len(CTABS)<1e8):
+        print("=== FINAL CTABS  = %.3e" % mean(CTABS))
         
         
 # Next simulate the emission from the dust within the model volume, possibly over many iterations
@@ -1497,8 +1495,9 @@ EMDONE   = None
 if (USER.WITH_REFERENCE==1):
     # We would not want to zero these in case one is continuing on a previous run
     # .... now reference field is effective only on later iterations of a single run
-    print('*'*80)
-    print("WITH_REFERENCE...")
+    if (VERBOSE): 
+        print('*'*80)
+        print("WITH_REFERENCE...")
     OEMITTED[:,:] = 0.0    #  [CELLS, REMIT_NFREQ] ... zero on first iteration
     OTABS[:]      = 0.0    #  [CELLS,]
 else:
@@ -1517,7 +1516,8 @@ Note --- WITH_ROI_SAVE not implemented (yet) for dust reemission !!
     
 if (not('SUBITERATIONS' in USER.KEYS)):
     for iteration in range(USER.ITERATIONS):  # iteratio over simulation <-> T-update cycles
-        print("ITERATION %d/%d" % (iteration+1, USER.ITERATIONS))
+        if (VERBOSE): 
+            print("ITERATION %d/%d" % (iteration+1, USER.ITERATIONS))
         
         
         commands[ID].finish()
@@ -1531,7 +1531,7 @@ if (not('SUBITERATIONS' in USER.KEYS)):
             # simulation for  true - old, this should decrease noise so there is no
             # need for explicit weighting of OEMITTED !
             if (1):
-                print(" [22]   OEMITTED  %12.4e   OTABS %12.4e" % (mean(OEMITTED[22,:]), mean(OTABS)))
+                if (VERBOSE): print(" [22]   OEMITTED  %12.4e   OTABS %12.4e" % (mean(OEMITTED[22,:]), mean(OTABS)))
                 if (1):
                     # This weighting means that reference field is nulled at first iteration
                     # --> noise suppressed only on later iterations of a single run
@@ -1544,10 +1544,11 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                         # reference field??
                         wr_fir =  int(USER.WITH_REFERENCE%100)
                         wr_tot =  int(floor(0.01*USER.WITH_REFERENCE))
-                        print('*'*80)
-                        print('WITH_REFERENCE %d  --- TOTAL %d, CURRENT = %d + %d' % \
-                        (USER.WITH_REFERENCE, wr_tot, wr_fir, iteration))
-                        print('*'*80)
+                        if (VERBOSE): 
+                            print('*'*80)
+                            print('WITH_REFERENCE %d  --- TOTAL %d, CURRENT = %d + %d' % \
+                            (USER.WITH_REFERENCE, wr_tot, wr_fir, iteration))
+                            print('*'*80)
                         k           = (iteration+wr_fir) / float(wr_tot)
                 else:
                     k           = 0.5
@@ -1560,7 +1561,7 @@ if (not('SUBITERATIONS' in USER.KEYS)):
         else:
             # RAM2 version --- each work item loops over cells =>  GLOBAL<CELLS, BATCH==packets per cell
             GLOBAL, BATCH  =  GLOBAL_0,  max([1,int(CLPAC/CELLS)])
-            print('=== CLPAC %d (%d), GLOBAL %d, BATCH %d' % (CLPAC, CELLS*BATCH, GLOBAL, BATCH))
+            if (VERBOSE): print('=== CLPAC %d (%d), GLOBAL %d, BATCH %d' % (CLPAC, CELLS*BATCH, GLOBAL, BATCH))
                 
         skip = USER.EMWEIGHT_SKIP-1
         if (CLPAC>0):
@@ -1579,7 +1580,7 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                 # Parameters for the current frequency
                 if ((FREQ<USER.SIM_F[0])|(FREQ>USER.SIM_F[1])): continue # FREQ not simulated!!
                 
-                print("  FREQ %3d/%3d  %10.3e" % (IFREQ+1, NFREQ, FREQ))
+                if (VERBOSE): print("  FREQ %3d/%3d  %10.3e" % (IFREQ+1, NFREQ, FREQ))
             
                 G = 0.0  # not used !
                 if (WITH_ABU>0): # ABS, SCA vectors
@@ -1640,22 +1641,19 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                 Tpush += time.time()-t0
                 ###
                 if ((IFREQ<REMIT_I1)|(IFREQ>REMIT_I2)): # this frequency not in EMITTED !!
-                    sys.stdout.write('\n')
+                    if (VERBOSE): sys.stdout.write('\n')
                     continue  # cannot simulate emission that is not in EMITTED
                 ###
                 if (USER.WITH_REFERENCE):
-                    EMIT[:]  =  EMITTED[:, IFREQ-REMIT_I1] - OEMITTED[:, IFREQ-REMIT_I1]
-                    
-                    if (IFREQ==-22): print(" [22]  EMIT  %12.4e - %12.4e = %12.4e" %
-                     (mean(EMITTED[:, IFREQ-REMIT_I1]),
-                     mean(OEMITTED[:, IFREQ-REMIT_I1]),
-                     mean(EMIT)))
-
+                    EMIT[:]  =  EMITTED[:, IFREQ-REMIT_I1] - OEMITTED[:, IFREQ-REMIT_I1]                    
+                    #if (IFREQ==-22): print(" [22]  EMIT  %12.4e - %12.4e = %12.4e" %
+                    # (mean(EMITTED[:, IFREQ-REMIT_I1]),
+                    # mean(OEMITTED[:, IFREQ-REMIT_I1]),
+                    # mean(EMIT)))
                     OEMITTED[:, IFREQ-REMIT_I1] = 1.0*EMITTED[:,IFREQ-REMIT_I1] # -> OTABS
                 else:
                     EMIT[:]  =  EMITTED[:, IFREQ-REMIT_I1]    # total emission
-                    
-                    if (IFREQ==-22): print(" [22]  EMIT  %12.4e" % (mean(EMIT)))
+                    # if (IFREQ==-22): print(" [22]  EMIT  %12.4e" % (mean(EMIT)))
                     
                 # EMITTED / FACTOR  =>  EMIT  .... file has unit FACTOR*photons/Hz/cm3
                 # kernel uses "actual" values, after division with FACTOR
@@ -1676,10 +1674,11 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                         # print 'EMITTED ', np.percentile(tmp, (0.0, 10.0, 90.0, 100.0))
                         if (1):
                             mmm      =  nonzero(~isfinite(tmp))                        
-                            print('='*80)
-                            print('EMWEI --- EMISSION NOT FINITE: %d'% len(mmm[0]))
+                            if (VERBOSE):
+                                print('='*80)
+                                print('EMWEI --- EMISSION NOT FINITE: %d'% len(mmm[0]))
+                                print('='*80)
                             tmp[mmm] = 0.0
-                            print('='*80)
                         tmp[:]   =  CLPAC*tmp/(sum(tmp)+1.0e-65)  # ~ number of packages
                         ## print 'EMWEI   ', np.percentile(tmp, (0.0, 10.0, 90.0, 100.0))
                         EMWEI[:] =  clip(tmp, USER.EMWEIGHT_LIM[0], USER.EMWEIGHT_LIM[1])
@@ -1883,7 +1882,7 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                     # OEMITTED lead to OTABS,  TABS corresponds to EMITTED-OEMITTED = delta
                     #  (but OEMITTED has been updated in the mean time)
                 
-                    print(" TABS  = %12.4e = %12.4e + %12.4e" % (mean(EMIT+OTABS), mean(EMIT), mean(OTABS)))
+                    if (VERBOSE): print(" TABS  = %12.4e = %12.4e + %12.4e" % (mean(EMIT+OTABS), mean(EMIT), mean(OTABS)))
                     # kernel calculated TABS from EMITTED-OEMITTED, add back the OTABS ~ OEMITTED
                     EMIT[:]  +=  OTABS[:]  # true TABS == delta TABS + OTABS
                     OTABS[:]  =  1.0*EMIT  # OTABS = current TABS for current (updated) OEMITTED
@@ -1892,7 +1891,7 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                     # EMIT  ==  sum of TABS components ==  OLD + DELTA + CONSTANT  absorptions
                 else:
                     # Here EMIT becomes the sum of all absorptions due to constant sources plus the medium
-                    print("===  TABS  = %12.4e  ... ADD CTABS % 12.4e" % (mean(EMIT), mean(CTABS)))                
+                    if (VERBOSE): print("===  TABS  = %12.4e  ... ADD CTABS % 12.4e" % (mean(EMIT), mean(CTABS)))                
                     EMIT[:]  +=  CTABS   # add absorbed energy due to constant radiation sources
 
             else:
@@ -1920,10 +1919,11 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                 print('******* EMIT NOT FINITE *******', len(mmm[0]))
             EMIT  = clip(EMIT, 1.0e-25, 1e32)
     
-        ###if (len(EMIT)<1e6):
-        print("====================================================================================================")
-        print(" TABS=EMIT  %.3e %.3e %.3e %.3e %.3e" % tuple(np.percentile(EMIT, (0.0, 10.0, 50.0, 90.0, 100.0))))
-        print("====================================================================================================")
+        if (VERBOSE): 
+            if (len(EMIT)<1e6):
+                print("====================================================================================================")
+                print(" TABS=EMIT  %.3e %.3e %.3e %.3e %.3e" % tuple(np.percentile(EMIT, (0.0, 10.0, 50.0, 90.0, 100.0))))
+                print("====================================================================================================")
         
         
         
@@ -1931,7 +1931,7 @@ if (not('SUBITERATIONS' in USER.KEYS)):
         if (not(USER.NOSOLVE)):
             # This works only with USER.NOABSORBED=True, when we have array EMIT that 
             # at this point already contains the integrated absorbed enery
-            print('Calculate temperatures')
+            if (VERBOSE): print('Calculate temperatures')
             TNEW = zeros(CELLS, float32)
             if (NDUST>1):
                 print("Internal solver in SOC can only deal with a single equilibrium-temperature dust.")
@@ -1945,29 +1945,18 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                 #                               level     adhoc       kE          Emin        NE        OFF    LCELLS  TTT    DENS   EMIT   TNEW
                 kernel_T.set_scalar_arg_dtypes([np.int32, np.float32, np.float32, np.float32, np.int32, None,  None,   None,  None,  None,  None ])
                 TTT_buf  = cl.Buffer(context[0], mf.READ_ONLY,  TTT.nbytes)
-                print("DENS_buf", DENS_buf[0])
-                print("TABS_buf", TABS_buf[0])
-                print("EMIT_buf", EMIT_buf[0])
-                print("push TTT ...", len(TTT), NE)
                 cl.enqueue_copy(commands[0], TTT_buf, TTT)
-                print("push EMIT ...")
                 cl.enqueue_copy(commands[0], EMIT_buf[0], EMIT)
-                print("Calling kernel_T...")
                 for l in range(LEVELS):
-                    print("Level %d ..." % l)
                     kernel_T(commands[0], [GLOBAL,], [LOCAL,], l, ADHOC, kE, Emin, NE,
                     OFF_buf[0], LCELLS_buf[0], TTT_buf, DENS_buf[0], EMIT_buf[0], TABS_buf[0])
-                    print("   ... call ready")
-                    print("Finish...")
                     commands[0].finish()
-                    print(" ... Finished")
-                print("Copy TNEW to host ....")    
                 cl.enqueue_copy(commands[0], TNEW, TABS_buf[0])
-                print("   ... ready")
                 
             elif (not('MPT' in USER.KEYS)):
                 for level in range(LEVELS):
-                    print('LEVEL %d, LCELLS %d, IND [%d, %d[' % (level, LCELLS[level], OFF[level], OFF[level]+LCELLS[level]))
+                    if (VERBOSE):    
+                        print('LEVEL %d, LCELLS %d, IND [%d, %d[' % (level, LCELLS[level], OFF[level], OFF[level]+LCELLS[level]))
                     for i in range(LCELLS[level]):
                         ind     =  OFF[level]+i
                         if (DENS[ind]<1.0e-10): 
@@ -2045,22 +2034,25 @@ if (not('SUBITERATIONS' in USER.KEYS)):
 
                     
             if (len(TNEW)<1e8):
-                print('CHECKING TEMPERATURES')
+                # print('CHECKING TEMPERATURES')
                 mok  = nonzero(DENS>1.0e-8)
                 mbad = nonzero(~isfinite(TNEW))
-                print('    TNEW not finite: %d' % len(mbad[0]))
-                for iii in mbad[0]:
-                    print('   .... bad %8d  n=%10.3e  T=%.3e  EMIT=ABS=%.3e' % (iii, DENS[iii], TNEW[iii], EMIT[iii]))
+                if (VERBOSE): 
+                    print('    TNEW not finite: %d' % len(mbad[0]))
+                    for iii in mbad[0]:
+                        print('   .... bad %8d  n=%10.3e  T=%.3e  EMIT=ABS=%.3e' % (iii, DENS[iii], TNEW[iii], EMIT[iii]))
                 TNEW[mbad] = 10.0
-                print('    T < 3K   : %d' % (len(nonzero(TNEW[mok]<3.0)[0])))
-                print('    T >1599K : %d' % (len(nonzero(TNEW[mok]>1599.0)[0])))
+                if (VERBOSE): 
+                    print('    T < 3K   : %d' % (len(nonzero(TNEW[mok]<3.0)[0])))
+                    print('    T >1599K : %d' % (len(nonzero(TNEW[mok]>1599.0)[0])))
                 TNEW[mok] = clip(TNEW[mok], 3.0, 1600.0)
-                if (len(TNEW)<2e7):
-                    print('    TNEW: %.3e %.3e %.3e  ' % tuple(np.percentile(TNEW[mok], (0, 50, 100))))
+                if (VERBOSE): 
+                    if (len(TNEW)<2e7):
+                        print('    TNEW: %.3e %.3e %.3e  ' % tuple(np.percentile(TNEW[mok], (0, 50, 100))))
             
                     
             # Save temperatures -- file format is the same as for density (including links!)
-            print('Save temperatures')
+            if (VERBOSE): print('Save temperatures')
             if (len(USER.file_temperature)>0):
                 fp = open(USER.file_temperature, "wb")
                 asarray([NX, NY, NZ, LEVELS, CELLS], int32).tofile(fp)
@@ -2074,7 +2066,7 @@ if (not('SUBITERATIONS' in USER.KEYS)):
             
         # Calculate emission
         if (not(USER.NOSOLVE)):
-            print("Calculate emission") 
+            if (VERBOSE): print("Calculate emission") 
             # If we have NOSOLVE==False, we have calculate TNEW above
             FTMP = zeros(REMIT_NFREQ, float64)
             if ('CLE' in USER.KEYS):                 # do emission calculation on device
@@ -2130,7 +2122,7 @@ if (not('SUBITERATIONS' in USER.KEYS)):
             del FTMP            
             Tsolve = time.time()-t0
         
-        print("--- End of iteration ---")
+        if (VERBOSE): print("--- End of iteration ---")
         # end of -- for iteration
         if (0):
             clf()
@@ -2142,9 +2134,10 @@ if (not('SUBITERATIONS' in USER.KEYS)):
     if ((USER.WITH_REFERENCE>1)&(not(USER.NOSOLVE))):
         asarray(OEMITTED, float32).tofile('OEMITTED.save')
         asarray(OTABS, float32).tofile('OTABS.save')
-        print('2'*80)
-        print('2 OEMITTED %12.4e, OTABS %12.4e' % (mean(ravel(OEMITTED)), mean(OTABS)))
-        print('2'*80)
+        if (VERBOSE): 
+            print('2'*80)
+            print('2 OEMITTED %12.4e, OTABS %12.4e' % (mean(ravel(OEMITTED)), mean(OTABS)))
+            print('2'*80)
 
 
         
@@ -2180,7 +2173,7 @@ if ('SUBITERATIONS' in USER.KEYS):
     
     for iteration in range(USER.ITERATIONS):  # iteratio over simulation <-> T-update cycles
         prc = 100.0*len(mask[0])/float(len(TOLD))
-        print("ITERATION %d/%d -- ignore emission %.2f %% of cells" % (iteration+1, USER.ITERATIONS, prc))
+        if (VERBOSE): print("ITERATION %d/%d -- ignore emission %.2f %% of cells" % (iteration+1, USER.ITERATIONS, prc))
         commands[ID].finish()    
         kernel_zero(commands[ID],[GLOBAL,],[LOCAL,],np.int32(0),TABS_buf[ID],XAB_buf[ID],INT_buf[ID],INTX_buf[ID],INTY_buf[ID],INTZ_buf[ID])
         commands[ID].finish()
@@ -2234,7 +2227,7 @@ if ('SUBITERATIONS' in USER.KEYS):
         else:
             # RAM2 version --- each work item loops over cells =>  GLOBAL<CELLS, BATCH==packets per cell
             GLOBAL, BATCH  =  GLOBAL_0,  max([1,int(CLPAC/CELLS)])
-            print('=== CLPAC %d, GLOBAL %d, BATCH %d' % (CELLS*BATCH, GLOBAL, BATCH))
+            if (VERBOSE): print('=== CLPAC %d, GLOBAL %d, BATCH %d' % (CELLS*BATCH, GLOBAL, BATCH))
                 
         assert(CLPAC>0)
         
@@ -2254,7 +2247,7 @@ if ('SUBITERATIONS' in USER.KEYS):
             if ((FREQ<USER.SIM_F[0])|(FREQ>USER.SIM_F[1])): continue            
             
             # print("    FREQ %3d/%3d   %12.4e --  ABS %.3e  SCA %.3e" % (IFREQ+1, NFREQ, FREQ, ABS, SCA))
-            print("  FREQ %3d/%3d  %10.3e" % (IFREQ+1, NFREQ, FREQ))
+            if (VERBOSE): print("  FREQ %3d/%3d  %10.3e" % (IFREQ+1, NFREQ, FREQ))
             
             G = 0.0
             if (WITH_ABU>0): # ABS, SCA, G are vectors
@@ -2337,7 +2330,7 @@ if ('SUBITERATIONS' in USER.KEYS):
             #       only gets a list of cells that will have simulated photon packages.
             
             p  =  100.0*len(nonzero(EMWEI>0.0)[0])/float(CELLS)
-            print('ITERATION %2d, EMISSION FROM %5.2f %% OF CELLS' % (iteration, p))
+            if (VERBOSE): print('ITERATION %2d, EMISSION FROM %5.2f %% OF CELLS' % (iteration, p))
             
             # any EMWEI<1.0 means it has probability EMWEI of being simulated batch=1
             #   which means the weight is 1/p = 1/EMWEI
@@ -2347,7 +2340,7 @@ if ('SUBITERATIONS' in USER.KEYS):
             commands[ID].finish()
             cl.enqueue_copy(commands[ID], EMWEI_buf[ID], EMWEI)
             commands[ID].finish()
-            print('=== Update EMWEI -> CLPAC=%d' % sum(EMWEI))
+            if (VERBOSE): print('=== Update EMWEI -> CLPAC=%d' % sum(EMWEI))
             # this limited only the re-simulation of emission from some cells
             # ... EMIT will still be updated for all cells, even if they are not
             #     included in the simulation on this iteration
@@ -2442,17 +2435,18 @@ if ('SUBITERATIONS' in USER.KEYS):
         if (1):
             mmm   = nonzero(~isfinite(EMIT))
             if (len(mmm[0]>0)):
-                print('EMIT NOT FINITE', len(mmm[0]))
+                if (VERBOSE): print('EMIT NOT FINITE', len(mmm[0]))
             EMIT  = clip(EMIT, 1.0e-25, 1e32)
 
 
             
             
-        print('Calculate temperatures')
+        if (VERBOSE): print('Calculate temperatures')
         t0 = time.time()
         if (not('MPT' in USER.KEYS)):
             for level in range(LEVELS):
-                print('LEVEL %d, LCELLS %d, IND [%d, %d[' % (level, LCELLS[level], OFF[level], OFF[level]+LCELLS[level]))
+                if (VERBOSE): 
+                    print('LEVEL %d, LCELLS %d, IND [%d, %d[' % (level, LCELLS[level], OFF[level], OFF[level]+LCELLS[level]))
                 for i in range(LCELLS[level]):
                     ind     =  OFF[level]+i
                     if (DENS[ind]<1.0e-10):
@@ -2523,15 +2517,16 @@ if ('SUBITERATIONS' in USER.KEYS):
                     PROC[i].join()                
                 TNEW[a:b] = MPTNEW
             
-                
-        if (len(TNEW)<1e6):
-            m       = nonzero(DENS>1e-7)
-            a, b, c = np.percentile(TNEW[m], (0, 50.0, 100.0))
-            print('TEMPERATURES %.3f %.3f %.3f' % (a, b, c))
+            
+        if (VERBOSE):                 
+            if (len(TNEW)<1e6):
+                m       = nonzero(DENS>1e-7)
+                a, b, c = np.percentile(TNEW[m], (0, 50.0, 100.0))
+                print('TEMPERATURES %.3f %.3f %.3f' % (a, b, c))
 
             
         # Save temperatures -- file format is the same as for density (including links!)
-        print('Save temperatures')
+        if (VERBOSE): print('Save temperatures')
         if (len(USER.file_temperature)>1):
             fp = open(USER.file_temperature, "wb")
             asarray([NX, NY, NZ, LEVELS, CELLS], int32).tofile(fp)
@@ -2543,7 +2538,7 @@ if ('SUBITERATIONS' in USER.KEYS):
             
             
         # Calculate emission
-        print('Calculate emission')
+        if (VERBOSE): print('Calculate emission')
         FTMP = zeros(REMIT_NFREQ, float64)
         if ('CLE' in USER.KEYS): # do emission calculation on device
             kernel_emission = program[0].Emission
@@ -2663,14 +2658,14 @@ del OEMITTED
 
 # We do not need ABSORBED after this point, free some memory before spectrum calculation.
 if (not(USER.NOABSORBED)):
-    print('*'*80)
+    if (VERBOSE): print('*'*80)
     
     #  FABSORBED[:,:] *=  1.0e20 / (USER.GL*PARSEC)
     # for level in range(1,LEVELS): FABSORBED[(OFF[level]) :  (OFF[level]+LCELLS[level])]  *=  8.0**level
     # for icell in range(CELLS):    FABSORBED[icell,:] /= DENS[icell]
     # Faster alternative
     # FABSORBED[CELLS, NFREQ]
-    print("Update absorbed (mmap)") 
+    if (VERBOSE): print("Update absorbed (mmap)") 
     for level in range(LEVELS):
         a, b      =   OFF[level], OFF[level]+LCELLS[level]   # index limits for cells on current level
         if (level==0):
@@ -2702,7 +2697,7 @@ if (not(USER.NOABSORBED)):
         #  I  =           (h*nu)/(4*pi) *  n_phot_absorbed_per_cm3 / kappa_per_cm
         # 2019-03-23 -- to be consistent with SAVE_INTENSITY=1,2 options, 
         #               we now save I *** multiplied by 4*pi ***
-        print("Save intensities")
+        if (VERBOSE): print("Save intensities")
         fp = open(USER.SAVE_INTENSITY_FILE, "wb") ;
         if (NDUST>1): 
             print("*** ERROR: SAVE_INTENSITY=3 does not work for multiple dusts (fix it!)")
@@ -2722,8 +2717,8 @@ if (not(USER.NOABSORBED)):
             
     ### delete = save and delete
     del FABSORBED   # writes the rest of updates to USER.file_absorbed
-    print("FABSORBED saved and deleted")
-    print('*'*80)
+    if (VERBOSE): print("FABSORBED saved and deleted")
+    if (VERBOSE): print('*'*80)
 ## del ABSORBED
 
 
@@ -2842,7 +2837,7 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
     KK  = (1.0e23/FACTOR) * PLANCK / (4.0*np.pi) #  1e3 = 1e23/1e20 = remove 1e20 scaling and convert to Jy/sr
     KK *= USER.GL*PARSEC
     OIFREQ = -1
-    print("*** MAPS FOR IFREQ=[%d,%d]" % (REMIT_I1, REMIT_I2))
+    if (VERBOSE): print("*** MAPS FOR IFREQ=[%d,%d]" % (REMIT_I1, REMIT_I2))
     
     first_freq = True
     for IFREQ in range(REMIT_I1, REMIT_I2+1):  # loop over frequencies [REMIT_I1, REMIT_I2]
@@ -2865,7 +2860,8 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
         if ((FREQ<USER.MAP_FREQ[0])|(FREQ>USER.MAP_FREQ[1])): continue # user may limit frequencies further
         
         if (USER.LIB_MAPS):
-            print(" LIB_MAPS ---- map %d, frequency %d in the full frequency grid" % (OIFREQ, IFREQ))
+            if (VERBOSE): 
+                print(" LIB_MAPS ---- map %d, frequency %d in the full frequency grid" % (OIFREQ, IFREQ))
 
             
         save_tau, save_colden = 0, 0
@@ -2888,10 +2884,10 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
         if (len(USER.SINGLE_MAP_FREQ)>0): # user picks individual map frequencies
             ii = argmin(abs(FREQ-USER.SINGLE_MAP_FREQ))
             if ((abs(FREQ-USER.SINGLE_MAP_FREQ[ii])/FREQ)>0.005):
-                print("      UM %6.2f ---NOT--- IN SINGLE_MAP_FREQ, CLOSEST %.2f um" % (f2um(FREQ), f2um(USER.SINGLE_MAP_FREQ[ii])))
+                if (VERBOSE): print("      UM %6.2f ---NOT--- IN SINGLE_MAP_FREQ, CLOSEST %.2f um" % (f2um(FREQ), f2um(USER.SINGLE_MAP_FREQ[ii])))
                 if ((save_tau==0)&(save_colden==0)):
                     continue
-            print("   *** DOING SINGLE_MAP_FREQ[%d] = %.3e = %6.1f um   (save_tau=%d, save_colden=%d)"  % (ii, FREQ, f2um(FREQ), save_tau, save_colden))
+            if (VERBOSE): print("   *** DOING SINGLE_MAP_FREQ[%d] = %.3e = %6.1f um   (save_tau=%d, save_colden=%d)"  % (ii, FREQ, f2um(FREQ), save_tau, save_colden))
 
             
         # optical parameters
@@ -2935,7 +2931,7 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
         # DENSITY is already on device, EMIT becomes number of emitted photons * 4*pi/(h*f)
         cl.enqueue_copy(commands[0], EMIT_buf[0], EMIT)
         FFF = None
-        print("using_fits = %d" % using_fits)
+        # print("using_fits = %d" % using_fits)
         for idir in range(NDIR): #  loop over directions
             suffix = ''
             if (NDIR>1): suffix = '_dir%d' % idir
@@ -2966,7 +2962,7 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
             else:  
                 asarray(MAP,float32).tofile(fpmap[idir])       # directly all the selected frequencies
             if (save_colden>0):
-                print("SAVE_COLDEN   file_savetau = %s" % USER.file_savetau)
+                if (VERBOSE): print("SAVE_COLDEN   file_savetau = %s" % USER.file_savetau)
                 FFF = MakeFits(USER.FITS_RA, USER.FITS_DE, USER.GL*USER.MAP_DX/[1000.0, USER.DISTANCE][USER.DISTANCE>0.0], USER.NPIX['x'], USER.NPIX['y'], [], sys_req='fk5')
                 cl.enqueue_copy(commands[0], MAP, SAVETAU_buf) # same number of pixels as MAP
                 FFF[0].data = MAP
@@ -3001,19 +2997,18 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
 if ((not(MAP_HIER))&(USER.NPIX['y']<0)): # Healpix map
     # Normal Healpix map
     # 2019-04-10: column density map is now always saved
-    print("MAP_HIER=%d, NPIX[y]=%d" % (MAP_HIER, USER.NPIX['y']))
+    if (VERBOSE): print("MAP_HIER=%d, NPIX[y]=%d" % (MAP_HIER, USER.NPIX['y']))
     # source      = open(os.getenv("HOME")+"/starformation/SOC/kernel_ASOC_map.c").read()
     source      = open(INSTALL_DIR+"/kernel_ASOC_map.c").read()
     program_map = cl.Program(context[0], source).build(ARGS+' -D NSIDE=%d' % (USER.NPIX['x']))
     kernel_map  = None
-    print(USER.NPIX['y'], USER.ROI_MAP)
     if (USER.NPIX['y']<=0):
-        print("program_map.HealpixMapping")
+        if (VERBOSE): print("program_map.HealpixMapping")
         kernel_map = program_map.HealpixMapping
     else:                  
-        print("program_map.Mapping")
+        if (VERBOSE): print("program_map.Mapping")
         kernel_map = program_map.Mapping
-    print("USER.ROI_MAP=%d" % USER.ROI_MAP) 
+    if (VERBOSE): print("USER.ROI_MAP=%d" % USER.ROI_MAP) 
     if (USER.ROI_MAP>0): # write map using only emission within ROI
         kernel_map.set_scalar_arg_dtypes([
         # 0       1                     2     3   
@@ -3097,7 +3092,7 @@ if ((not(MAP_HIER))&(USER.NPIX['y']<0)): # Healpix map
             EMIT[:] = EMITTED[:, OIFREQ] * KK * FREQ   # EMITTED and maps will have the frequencies from FSELECT
         else:
             EMIT[:] = EMITTED[:, IFREQ-REMIT_I1] * KK * FREQ
-        print("EMIT = %12.4e" % mean(EMIT))
+        if (VERBOSE): print("EMIT = %12.4e" % mean(EMIT))
         # use kernel to do the LOS integration:  EMIT -> MAP
         cl.enqueue_copy(commands[0], EMIT_buf[0], EMIT)
         for idir in range(NDIR):        #  loop over observer directions
@@ -3114,7 +3109,7 @@ if ((not(MAP_HIER))&(USER.NPIX['y']<0)): # Healpix map
                 USER.INTOBS, OPT_buf[0], SAVETAU_buf, SAVE_COLDEN)
             cl.enqueue_copy(commands[0], MAP, MAP_buf)
             # write the frequency maps to file
-            print(" ---- MAP %12.4e" % mean(MAP)) ;
+            if (VERBOSE): print(" ---- MAP %12.4e" % mean(MAP)) ;
             asarray(MAP, float32).tofile(fpmap[idir])
             if ((IFREQ==REMIT_I1)&(USER.savetau_freq==0.0)):
                 # save column density only after the calculation of the first frequency
@@ -3141,7 +3136,7 @@ if (MAP_HIER):
     # One frequency at a time, images of individual hierarchy levels, only one direction!
     if (USER.LIB_MAPS):
         print("*** ERROR: MAP_HIER not implemented together with LIB_MAPS !!!"), sys.exit()
-    print("MAP_HIER=%d, NPIX[y]=%d" % (MAP_HIER, USER.NPIX['y']))
+    if (VERBOSE): print("MAP_HIER=%d, NPIX[y]=%d" % (MAP_HIER, USER.NPIX['y']))
     # source      = open(os.getenv("HOME")+"/starformation/SOC/kernel_ASOC_map_H.c").read()
     source      = open(INSTALL_DIR+"/kernel_ASOC_map_H.c").read()
     program_map = cl.Program(context[0], source).build(ARGS+' -D NSIDE=%d' % (USER.NPIX['x']))
@@ -3258,7 +3253,7 @@ if (MAP_HIER):
     
 if (MAP_FAST):
     if (1):
-        print("*** kernel_ASOC_map_X.c (fast mapping) does not yet exist for ASOC.py -- use slow mapping instead")        
+        print("*** kernel_ASOC_map_X.c (fast mapping) does not yet exist for ASOC.py -- use slow mapping instead")
     if (WITH_ABU>0):
         print("*** Error:  MAP_FAST currently possible only when dust abundances are constant!"), sys.exit()
     if (USER.LIB_MAPS):
@@ -3270,8 +3265,6 @@ if (MAP_FAST):
     m          =  nonzero((FFREQ>USER.MAP_FREQ[0])&(FFREQ>USER.REMIT_F[0])&(FFREQ<USER.MAP_FREQ[1])&(FFREQ<USER.REMIT_F[1]))
     NF         =  min([NF, len(m[0])])   # actual number of frequencies
     I1, I2     =  m[0][0], m[0][-1]      # first and last frequency index
-    ##print NF, I1, I2
-    ##print USER.MAP_FREQ, USER.REMIT_F
     # filename    = os.getenv("HOME")+"/starformation/SOC/kernel_ASOC_map_X.c"
     filename    = INSTALL_DIR+"/kernel_ASOC_map_X.c"
     source      = open(filename).read()
@@ -3329,7 +3322,7 @@ if (MAP_FAST):
     KK  = (1.0e23/FACTOR) * PLANCK / (4.0*np.pi)   # 1e3 = 1e23/1e20 = removing scaling, convert to Jy/sr
     KK *= USER.GL*PARSEC
     for IFREQ in range(I1, I2, NF):   # loop over batches of NF frequencies
-        sys.stdout.write(" %d" % IFREQ)
+        if (VERBOSE): sys.stdout.write(" %d" % IFREQ)
         freq        = FFREQ[IFREQ]
         EMITX.shape = (CELLS, NF)
         # Mapping ... only when abundances are constant !!
@@ -3376,8 +3369,9 @@ if (MAP_FAST):
                     fp.close()
 
     # end of  -- for IFREQ
-    sys.stdout.write("\n")
-    sys.stdout.flush()
+    if (VERBOSE): 
+        sys.stdout.write("\n")
+        sys.stdout.flush()
     for idir in range(NDIR):  fpmap[idir].close()
     del EMITX
     del MAPX
@@ -3394,7 +3388,7 @@ Tmap = time.time()-t0  # total time spent on calculating maps
 if ((USER.NO_PS>0)&(USER.pssavetau_freq>0.0)&(USER.NPIX['y']>0)):
     # Calculate column density or tau from each point source to the observer
     #                   then REMIT_I1==0, REMIT_I2==ONFREQ-1
-    print("PS_SAVETAU  --- USER.NPIX.x = %d" % USER.NPIX['x'])
+    if (VERBOSE): print("PS_SAVETAU  --- USER.NPIX.x = %d" % USER.NPIX['x'])
 
     PSCOLDEN_buf   = cl.Buffer(context[0], mf.WRITE_ONLY, 4*USER.NO_PS) # colden towards each pointsource
     PSTAU_buf      = cl.Buffer(context[0], mf.WRITE_ONLY, 4*USER.NO_PS) # tau towards each pointsource
@@ -3453,7 +3447,7 @@ if ((USER.NO_PS>0)&(USER.pssavetau_freq>0.0)&(USER.NPIX['y']>0)):
         LCELLS_buf[0], OFF_buf[0], PAR_buf[0], DENS_buf[0], ABS[0], SCA[0],
         # 11        12             13       
         OPT_buf[0], PSCOLDEN_buf,  PSTAU_buf)
-        print("*** Writing the ps column density")
+        if (VERBOSE): print("*** Writing the ps column density")
         cl.enqueue_copy(commands[0], pscolden, PSCOLDEN_buf)
         cl.enqueue_copy(commands[0], pstau,    PSTAU_buf)
         fp       = open("%s_%d.dat" % (USER.file_pssavetau, idir), "w")
@@ -3466,7 +3460,7 @@ if ((USER.NO_PS>0)&(USER.pssavetau_freq>0.0)&(USER.NPIX['y']>0)):
 
 
 
-print("USER.POLMAP %d, USER.NOMAP %d, USER.NPIX[y] %d" % (USER.POLMAP, USER.NOMAP, USER.NPIX['y']))
+if (VERBOSE): print("USER.POLMAP %d, USER.NOMAP %d, USER.NPIX[y] %d" % (USER.POLMAP, USER.NOMAP, USER.NPIX['y']))
 
 
 t0 = time.time()
@@ -3480,7 +3474,7 @@ if ((USER.POLMAP>0)&(USER.NPIX['y']>0)):  # NORMAL POLARISATION MAPS
     POLSTAT==2   -->  I,Q,U,N but non-orthographic, with cube replication and arbitrary LOS length
     POLSTAT==3   -->  calculate { <B>, <B_LOS>, <B_POS>, TAU }, averages density weighted
     """
-    print("=== WRITE POLARISATION MAPS ===") 
+    if (VERBOSE): print("=== WRITE POLARISATION MAPS ===") 
     if (USER.LIB_MAPS):
         print("*** ERROR: POLMAP not implemented together with LIB_MAPS"), sys.exit()
     TNEW        = zeros(CELLS, float32)        
@@ -3493,7 +3487,7 @@ if ((USER.POLMAP>0)&(USER.NPIX['y']>0)):  # NORMAL POLARISATION MAPS
     #    {  LCELLS, { values } }
     BB = []
     for ii in range(3):  
-        print(USER.BFILES[ii])
+        if (VERBOSE): print(USER.BFILES[ii])
         BB.append( read_otfile(USER.BFILES[ii]) )  # BB is full vector, including parent cells
     if (USER.POLSTAT!=3):  # POLSTAT==3 uses the full B vector
         if (len(USER.file_polred)>0):
@@ -3543,9 +3537,10 @@ if ((USER.POLMAP>0)&(USER.NPIX['y']>0)):  # NORMAL POLARISATION MAPS
     cl.enqueue_copy(commands[0], Bx_buf, BB[0])
     cl.enqueue_copy(commands[0], By_buf, BB[1])
     cl.enqueue_copy(commands[0], Bz_buf, BB[2])
-    print("    --------- Bx  %7.3f %7.3f %7.3f %7.3f %7.3f" % (BB[0][0], BB[0][1], BB[0][2], BB[0][3], BB[0][4]))
-    print("    --------- By  %7.3f %7.3f %7.3f %7.3f %7.3f" % (BB[1][0], BB[1][1], BB[1][2], BB[1][3], BB[1][4]))
-    print("    --------- Bz  %7.3f %7.3f %7.3f %7.3f %7.3f" % (BB[2][0], BB[2][1], BB[2][2], BB[2][3], BB[2][4]))
+    if (VERBOSE): 
+        print("    --------- Bx  %7.3f %7.3f %7.3f %7.3f %7.3f" % (BB[0][0], BB[0][1], BB[0][2], BB[0][3], BB[0][4]))
+        print("    --------- By  %7.3f %7.3f %7.3f %7.3f %7.3f" % (BB[1][0], BB[1][1], BB[1][2], BB[1][3], BB[1][4]))
+        print("    --------- Bz  %7.3f %7.3f %7.3f %7.3f %7.3f" % (BB[2][0], BB[2][1], BB[2][2], BB[2][3], BB[2][4]))
     commands[0].finish()
     ###
     del BB[2]
@@ -3580,7 +3575,7 @@ if ((USER.POLMAP>0)&(USER.NPIX['y']>0)):  # NORMAL POLARISATION MAPS
         else:
             if ((FREQ<USER.MAP_FREQ[0])|(FREQ>USER.MAP_FREQ[1])): 
                 continue  # we are writing only frequencies limited by USER.MAP_FREQ
-        print("POLMAP, IFREQ =  %d" % IFREQ)
+        if (VERBOSE): print("POLMAP, IFREQ =  %d" % IFREQ)
         ABS[0], SCA[0]  = AFABS[0][IFREQ], AFSCA[0][IFREQ]        
         if (WITH_ABU>0): # ABS, SCA, G are vectors
             OPT[:,:] = 0.0
@@ -3651,7 +3646,7 @@ if ((USER.POLMAP>0)&(USER.NOMAP==0)&(USER.NPIX['y']<0)):  # HEALPIX POLARISATION
     #    {  LCELLS, { values } }
     BB = []
     for ii in range(3):  
-        print(USER.BFILES[ii])
+        if (VERBOSE): print(USER.BFILES[ii])
         BB.append( read_otfile(USER.BFILES[ii]) )
     if (len(USER.file_polred)>0):
         # Polarisation reduction factor R is encoded to the length of the B vectors
@@ -3730,8 +3725,9 @@ if ((USER.POLMAP>0)&(USER.NOMAP==0)&(USER.NPIX['y']<0)):  # HEALPIX POLARISATION
     KK *= USER.GL*PARSEC    
     for IFREQ in range(REMIT_I1, REMIT_I2+1):    #  loop over frequencies
         if (IFREQ%5==0): 
-            sys.stdout.write(" %d" % IFREQ)
-            sys.stdout.flush()
+            if (VERBOSE): 
+                sys.stdout.write(" %d" % IFREQ)
+                sys.stdout.flush()
         FREQ = FFREQ[IFREQ]
         if ((FREQ<USER.MAP_FREQ[0])|(FREQ>USER.MAP_FREQ[1])): 
             continue  # we are writing only frequencies limited by USER.MAP_FREQ
@@ -3790,9 +3786,10 @@ Tpolmap = time.time()-t0
 
 del EMITTED   # this also writes the rest of EMITTED to disk
 
-print("        Tpush     %9.4f seconds" % Tpush)
-print("        Tkernel   %9.4f seconds" % Tkernel)
-print("        Tpull     %9.4f seconds" % Tpull)
-print("        Tsolve    %9.4f seconds" % Tsolve)
-print("        Tmap      %9.4f seconds" % Tmap)
+if (VERBOSE): 
+    print("        Tpush     %9.4f seconds" % Tpush)
+    print("        Tkernel   %9.4f seconds" % Tkernel)
+    print("        Tpull     %9.4f seconds" % Tpull)
+    print("        Tsolve    %9.4f seconds" % Tsolve)
+    print("        Tmap      %9.4f seconds" % Tmap)
     

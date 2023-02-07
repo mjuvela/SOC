@@ -216,7 +216,8 @@ class User:
         self.FITS_PREFIX   = 'map'   # 2022-03-02
         self.FITS_RA       = 0.0     # optional  FITS centre coordinates in degrees
         self.FITS_DE       = 0.0
-        self.MIRROR       = ''
+        self.MIRROR        = ''
+        self.VERBOSE       = 1
         
         # read inifile
         for line in open(filename).readlines():    
@@ -298,6 +299,7 @@ class User:
                     self.sDEVICE = s[2]
                 
             if (key.find('fission')==0):     self.FISSION           = int(a)
+            if (key.find('verbose')==0):     self.VERBOSE           = int(a)
             if (key.find('sourcemap')==0):   self.file_sourcemap    = a
             if (key.find('tempera')==0):     self.file_temperature  = a
             if (key.find('cloud')==0):       self.file_cloud        = a
@@ -879,7 +881,7 @@ def mmap_emitted(USER, CELLS, LEVELS, LCELLS, REMIT_NFREQ, OFF, DENS):
             fp.close()
             
         # mmap object, frequency runs faster --- note that offset is in bytes
-        print("EMITTED ~ %s" % USER.file_emitted)
+        # print("EMITTED ~ %s" % USER.file_emitted)
         EMITTED=np.memmap(USER.file_emitted, dtype='float32',mode='r+', shape=(CELLS, REMIT_NFREQ),offset=8) # header only CELLS, NFREQ
         
         # print 'EMITTED FULL RANGE', prctile(ravel(EMITTED), (0,50.0,100.0))

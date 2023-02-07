@@ -98,7 +98,7 @@ if (len(sys.argv)>4):
             IFREQ = int(sys.argv[6])  #  if IFREQ>=0, save only emission at single frequency
             if (len(sys.argv)>7):     # we have parameters for calculation of polarised intensity
                 AALG = sys.argv[7]    #  file with ---  {CELLS} aalg[CELLS]
-print("A2E.py with IFREQ=%d" % IFREQ)        
+# print("A2E.py with IFREQ=%d" % IFREQ)        
         
 # Read solver dump file
 FP     =  open(sys.argv[1], 'rb')      # dump
@@ -210,22 +210,21 @@ except:
     
 for itry in range(2):
     for iplatform in platforms:
-        print("platform %d" % iplatform)
+        # print("platform %d" % iplatform)
         try:
             platform = cl.get_platforms()[iplatform]
-            print(platform)
+            # print(platform)
             if (GPU>=1.0):
                 devices  =  platform.get_devices(cl.device_type.GPU)
                 for idevice in range(len(devices)):
                     device = [ devices[idevice] ]
-                    print("---------------- GPU device name = ", device[0].name)
+                    # print("---------------- GPU device name = ", device[0].name)
                     if ('Oclgrind' in device[0].name):
                         device = []
                     elif (sdevice!=''):
                         if (not(sdevice in device[0].name)):
                             device = []
-                    if (len(device)>0):
-                        print("device %s ok" % device[0].name)
+                    # if (len(device)>0): print("device %s ok" % device[0].name)
                     if (len(device)>0): 
                         break
                 LOCAL    = 32  #  64 -> 32, TS test = no effect
@@ -233,7 +232,7 @@ for itry in range(2):
                 devices  =  platform.get_devices(cl.device_type.CPU)
                 for idevice in range(len(devices)):
                     device = [ devices[idevice] ]
-                    print("---------------- CPU device name = ", device[0].name)
+                    # print("---------------- CPU device name = ", device[0].name)
                     if ('Oclgrind' in device[0].name):
                         device = []                        
                     elif (sdevice!=''):
@@ -242,13 +241,12 @@ for itry in range(2):
                         break
                 LOCAL    = 8
             if (len(device)>0):
-                print(' ... %s ok' % device[0].name)
+                # print(' ... %s ok' % device[0].name)
                 context  = cl.Context(device)
                 queue    = cl.CommandQueue(context)
                 ok       = True
                 break
         except:
-            print('X')            
             pass
     if (ok==True): break        # device found, break itry loop
     if (itry==0):
@@ -258,7 +256,7 @@ for itry in range(2):
         print("*** ERROR:   A2E.py failed to find any working OpenCL platform !!!")
         time.sleep(10)
         sys.exit()
-print("--------------------------------------------------------------------------------")
+
 
 
 GLOBAL      =  max([BATCH,64*LOCAL])
@@ -403,7 +401,7 @@ def process_stochastic(isize, AALG):
             else:            emit.tofile(FP_BY_SIZE)
             
             
-    print('   SIZE %2d/%2d  %.3e s/cell/size' % (isize, NSIZE, (time.time()-t00)/CELLS))
+    # print('   SIZE %2d/%2d  %.3e s/cell/size' % (isize, NSIZE, (time.time()-t00)/CELLS))
     if (AALG):
         fp_aalg.close()
         
@@ -449,9 +447,9 @@ for isize in range(NSIZE):
         kE     = (Emax/Emin)**(1.0/(NIP-1.0))  # E[i] = Emin*pow(kE, i)
         oplgkE = 1.0/log10(kE)
         ip     = interp1d(Eout, TT)           # (linear) interpolation from energy to temperature
-        print('Eout = %10.3e ... %10.3e' % (Emin, Emax))
+        # print('Eout = %10.3e ... %10.3e' % (Emin, Emax))
         TTT    = asarray(ip(Emin * kE**arange(NIP)), np.float32)
-        print("Mapping E -> T calculated on host: %.3f seconds" % (time.time()-t1))
+        # print("Mapping E -> T calculated on host: %.3f seconds" % (time.time()-t1))
         if (0):
             loglog(TTT, Emin * kE**arange(NIP), 'k-')
             SHOW()

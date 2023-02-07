@@ -57,7 +57,6 @@ for arg in sys.argv[2:]:
     if (arg=='uselib'):      USELIB  = 1
     if (arg=='makelib'):     MAKELIB = 1  # normal run + make library
     if (arg=='MAKELIB'):     MAKELIB = 2  # ... additional run for reference frequencies
-print(USELIB, MAKELIB)
 
 
 def is_gs_dust(name):
@@ -109,14 +108,12 @@ for idust in range(NDUST):
     if (os.path.exists(solver)): # skip solver creation if that exists and is more recent than dust file
         if (os.stat(dust+'.dust').st_mtime<os.stat(solver).st_mtime): redo = False
     if (redo):
-        print("")
-        print("OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO")
         print("================================================================================")
         print('A2E_pre.py %s.dust freq.dat %s' % (dust, solver)) # gs_aSilx.dust -> aSilx.solver
         print("================================================================================")
         t0 = time.time()
         os.system('A2E_pre.py %s.dust freq.dat %s' % (dust, solver))
-        print('... A2E_pre.py %s.dust freq.dat %s ... %.2f seconds' % (dust, solver, time.time()-t0)) # gs_aSilx.dust -> aSilx.solver
+        # print('... A2E_pre.py %s.dust freq.dat %s ... %.2f seconds' % (dust, solver, time.time()-t0)) # gs_aSilx.dust -> aSilx.solver
 
         
         
@@ -164,8 +161,6 @@ fp.close()
 
 
 if (1): # THE ASOC RUNS
-    print("")
-    print("OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO")
     print("================================================================================")
     print('ASOC.py rt_simple.ini')
     print("================================================================================")
@@ -222,7 +217,6 @@ if (1): # THE ASOC RUNS
             IFREQ  =  zeros(NLFREQ, int32)
             for i in range(NLFREQ):
                 IFREQ[i] = argmin(abs(FREQ-LFREQ[i]))        
-            print("IFREQ", IFREQ)        
             cells, nfreq = fromfile(AFILE, int32, 2)
             A = fromfile(AFILE,  float32)[2:].reshape(cells, nfreq)    # normal absorptions
             B = fromfile(AFILE2, float32)[2:].reshape(cells, NLFREQ)   # better for reference frequencies
@@ -232,7 +226,7 @@ if (1): # THE ASOC RUNS
             asarray([cells, nfreq], int32).tofile(fp)
             A.tofile(fp)
             fp.close()
-        print("MAKELIB DONE --- ADDITIONAL SIMULATION OF REFERENCE FREQUENCIES DONE")
+        # print("MAKELIB DONE --- ADDITIONAL SIMULATION OF REFERENCE FREQUENCIES DONE")
     
             
 
@@ -272,16 +266,14 @@ if (USELIB):
 
 # If ini contained "libmaps ofreq.dat" that will be used below when writing the maps...
 # aln already here the library solution will use the same, limiting emission file to ofreq.dat
-print("")
-print("OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO")
 print("================================================================================")
 print('A2E_MABU.py %s %s %s %s' % (INI, fabs, femit, args))
 print("================================================================================")
-# sys.exit()
+
 os.system('cp %s a2e_mabu_backup.ini' % INI)
 t0 = time.time()
 os.system('A2E_MABU.py %s %s %s %s' % (INI, fabs, femit, args))
-print('... A2E_MABU.py %s %s %s %s... %.2f seconds' % (INI, fabs, femit, args, time.time()-t0))
+# print('... A2E_MABU.py %s %s %s %s... %.2f seconds' % (INI, fabs, femit, args, time.time()-t0))
 
 
 # ok --- if we have libmaps in the ini, emission file contains only those frequencies
@@ -318,11 +310,9 @@ if (0):
             fp3.write('libmaps  ofreq.dat\n')
 fp3.close()            
 
-print("")
-print("OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO")
 print("================================================================================")
 print("ASOC.py maps.ini")
 print("================================================================================")
 t0 = time.time()
 os.system('ASOC.py maps.ini')
-print("... ASOC.py maps.ini... %.2f seconds" % (time.time()-t0))
+# print("... ASOC.py maps.ini... %.2f seconds" % (time.time()-t0))
