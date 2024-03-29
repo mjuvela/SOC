@@ -80,6 +80,9 @@ if (not(os.path.exists(sys.argv[2]))):
     sys.exit(1)
     
     
+total_A2E_time = time.time()
+
+
 #BATCH =  8192     # Restricted by available GPU memory? Apparently not (any more).
 BATCH  = 4096        #   52.3 seconds,  5007 cells per second
 BATCH  = 5120        #   46.9 seconds,  5593 cells per second
@@ -207,7 +210,8 @@ try:
     sdevice = os.environ['OPENCL_SDEVICE']
 except:
     sdevice = ''
-    
+
+# print("Selecting OpenCL device ...")    
 for itry in range(2):
     for iplatform in platforms:
         # print("platform %d" % iplatform)
@@ -257,8 +261,14 @@ for itry in range(2):
         time.sleep(10)
         sys.exit()
 
-
-
+if (0):
+    print("-"*80)
+    print(platform)
+    print(device)
+    print("-"*80)
+    # sys.exit()
+    
+    
 GLOBAL      =  max([BATCH,64*LOCAL])
 if (GLOBAL%64!=0):
     GLOBAL  = (GLOBAL/64+1)*64
@@ -349,6 +359,8 @@ def process_stochastic(isize, AALG):
     Ibeg  = np.fromfile(FP, np.int32,   NFREQ)    
     cl.enqueue_copy(queue, Ibeg_buf,  Ibeg)        
     queue.finish()
+    total_kernel_time = 0.0
+    total_call_time   = time.time()
     # Loop over the cells, BATCH cells per kernel call
     t00 = time.time()
     fp_aalg = None
@@ -362,7 +374,8 @@ def process_stochastic(isize, AALG):
         batch = min([BATCH, CELLS-icell])  # actual number of cells
         emit  = zeros((batch, NFREQ), float32)
         cl.enqueue_copy(queue, ABS_buf,  ABSORBED[icell:(icell+BATCH),:])
-        queue.finish()            
+        queue.finish()      
+        t0000 = time.time()
         if (WITH_X):
             DoSolve(queue, [GLOBAL,], [LOCAL,], 
             batch,     isize,
@@ -375,6 +388,7 @@ def process_stochastic(isize, AALG):
             Ibeg_buf,  AF_buf,  ABS_buf,  EMIT_buf,  A_buf)
         queue.finish()            
         cl.enqueue_copy(queue, emit, EMIT_buf)  # batch*NFREQ
+        total_kernel_time += time.time()-t0000
         if (IFREQ>=0):
             EMITTED[icell:(icell+batch), 0] += emit[:, IFREQ]   # emission at single frequency
         else:
@@ -405,6 +419,8 @@ def process_stochastic(isize, AALG):
     if (AALG):
         fp_aalg.close()
         
+    total_call_time = time.time() - total_call_time
+    print("process_stochastic: kernel %.4f, total %.4f" % (total_kernel_time, total_call_time))    
 
     
 """
@@ -578,7 +594,9 @@ for isize in range(NSIZE):
     
     
 DT = time.time() - t0
-print('  %.3f SECONDS' % DT)
+print('@@  A2E.py %.3f SECONDS' % DT)
+sys.stdout.flush()
+
 REF_RATE = 1520.0
 REF_RATE =  100.7
 REF_RATE =  1.0/1.054e-2
@@ -587,3 +605,6 @@ print('  %4d  -- %.3e SECONDS PER CELL  -- %8.3f CELLS PER SECOND -- x %5.2f' % 
 
 if (FP_BY_SIZE):
     FP_BY_SIZE.close()
+
+    
+print("TOTAL A2E TIME: %.4f" % total_A2E_time)    

@@ -65,7 +65,7 @@ The same with variable abundances:
     libmaps => load smaller emitted file with a subset of frequencies, write maps for those
 """
 
-
+t0000 = time.time()
 
 EMWEI2_STEP = 100
 # ADHOC       = 1.0e-10
@@ -138,7 +138,7 @@ if (WITH_ABU & USER.SINGLE_ABU):
     if (WITH_MSF):
         print("Option USER.SINGLE_ABU cannot be used with WITH_MSF !!")
         sys.exit(0)
-    ABU = ravel(ABU[:,0])  #  second dust has implicitly abundance 1-ABU !!
+    ABU = ravel(ABU[:,0])            #  second dust has implicitly abundance 1-ABU !!
 
     
 if (WITH_ABU):    # ABU + SCA vectors in case of non-constant dust abundances
@@ -555,6 +555,7 @@ elif (USER.LIB_ABS): #  only emission at USER.FSLECT frequencies = reference fre
     # IN FACT THIS RUN WILL NOT DO NOTHING WITH EMITTED... APART FROM AS DIFFUSE RADIATION SOURCE ?
     EMITTED  = mmap_emitted(USER, CELLS, LEVELS, LCELLS, len(USER.FSELECT), OFF, DENS)
 else:
+    # not nesessarily mmap, could be direct numpy array
     EMITTED  = mmap_emitted(USER, CELLS, LEVELS, LCELLS, REMIT_NFREQ, OFF, DENS)  # EMITTED[CELLS, REMIT_NFREQ]
 
 
@@ -567,11 +568,18 @@ if (not(USER.NOABSORBED)): # we store absorptions at all frequencies, use mmap a
     # This is required by A2E ... DustEm uses the file_intensity instead
     # If LIB_ABS is true, absorption file will contain only frequencies USER.FSELECT => ONFREQ frequencies
     if (VERBOSE): print("**** OPEN ABSORPTION FILE ****\n")
-    fp  =  open(USER.file_absorbed, "wb")
-    asarray([CELLS, ONFREQ], int32).tofile(fp)  # 2018-12-29 dropped "levels" from the absorbed/emitted files
-    fp.close()
-    FABSORBED = np.memmap(USER.file_absorbed, dtype='float32', mode='r+', offset=8, shape=(CELLS, ONFREQ))
-    FABSORBED[:,:] = 0.0
+    if (USER.MMAP_ABSORBED>0):
+        print("*** FABSORBED via mmap")
+        fp  =  open(USER.file_absorbed, "wb")
+        asarray([CELLS, ONFREQ], int32).tofile(fp)  # 2018-12-29 dropped "levels" from the absorbed/emitted files
+        fp.close()
+        FABSORBED = np.memmap(USER.file_absorbed, dtype='float32', mode='r+', offset=8, shape=(CELLS, ONFREQ))
+        FABSORBED[:,:] = 0.0
+    else:   # keep FABSORBED directly in memory, save to disk only at the end
+        print("*** FABSORBED numpy array")
+        FABSORBED = zeros((CELLS, ONFREQ), float32)
+        
+        
     
     
 Emin, kE, TTT, TTT_buf = None, None, None, None
@@ -689,6 +697,7 @@ if ((USER.LOAD_TEMPERATURE)&(USER.ITERATIONS<1)):
     else:
         # 2019-01-15
         # use Emission() kernel routine
+        # print("TNEW", percentile(TNEW, (0, 10, 50, 90, 100)))
         if (VERBOSE): print("temperature_to_emitted --- in kernel")
         kernel_emission = program[0].Emission
         kernel_emission.set_scalar_arg_dtypes([np.float32, np.float32, None, None, None])
@@ -1050,6 +1059,7 @@ else:
         OIFREQ = -1   # true index of the saved frequency, in case we have LIB_ABS==True
         for IFREQ in range(NFREQ):
 
+            T000 = time.time()
             Tpre = time.time()            
             FREQ = FFREQ[IFREQ]
                         
@@ -1150,14 +1160,13 @@ else:
             
                 
             Tpre = time.time()-Tpre
+            Tpush = time.time()
             
             if (VERBOSE):
                 sys.stdout.write("   BG %12.4e  PS %12.4e   TW %10.3e" % (BG, PS[0], FF))
                 sys.stdout.flush()
-            T000 = time.time()
             
             # Upload to device new DSC, CSC, possibly also EMIT
-            Tpush = time.time()
             if (WITH_MSF==0): # we have single DSC and CSC arrays, pick values for the current frequency
                 cl.enqueue_copy(commands[ID], DSC_buf[ID], FDSC[0,IFREQ,:])
                 cl.enqueue_copy(commands[ID], CSC_buf[ID], FCSC[0,IFREQ,:])
@@ -1168,7 +1177,9 @@ else:
                 cl.enqueue_copy(commands[ID], DSC_buf[ID], DSC)
                 cl.enqueue_copy(commands[ID], CSC_buf[ID], CSC)
             commands[ID].finish()
-            Tpush = time.time()-Tpush    
+            Tpush = time.time()-Tpush
+            
+            
             if (USER.SEED>0): seed = fmod(USER.SEED+SEED0+(DEVICES*IFREQ+ID)*SEED1, 1.0)
             else:             seed = rand()
             
@@ -1227,7 +1238,6 @@ else:
                 cl.enqueue_copy(commands[0], ROI_SAVE_buf, zeros(ROI_SAVE_NPIX, float32))
                 
                 
-            ## t0 = time.time()            
             commands[ID].finish()
 
             
@@ -1384,20 +1394,12 @@ else:
                     ROI_DIM_buf, ROI_LOAD_buf) 
                 
             commands[ID].finish()                
-            Tkernel += time.time()-t0 # REALLY ONLY THE KERNEL EXECUTION TIME
-                
+            
+            Tker     = time.time()-t0  # single kernel call
+            Tkernel += time.time()-t0  # total, kernel calls themselves only
+            
             Tpost = time.time()
             
-            # #=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=
-            if (0): # @@
-                print("DONE ONE FREQUENCY: %.2f seconds" % (time.time()-t0))
-                cl.enqueue_copy(commands[ID], EMIT, TABS_buf[ID])
-                asarray(EMIT, float32).tofile('tabs.1')
-                sys.exit()
-            # #=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=
-            
-            
-                
             if (USER.WITH_ROI_SAVE>0):
                 # Add the photons that entered ROI for the current IFREQ into the global array
                 tmp= zeros(ROI_SAVE_NPIX, float32)
@@ -1407,22 +1409,31 @@ else:
                 ROI_SAVE[IFREQ, :] += tmp   # += because we may have PS and BG and even ROI in this loop
                 if (VERBOSE): print("ROI +=  %12.4e\n" % sum(tmp))
                 tmp = None
-
                 
             # Save intensity 
             if (USER.SAVE_INTENSITY>0):
-                assert(USER.WITH_REFERENCE==0) ; # we want TABS_buf to contain the total field
+                assert(USER.WITH_REFERENCE==0) ;   # we want TABS_buf to contain the total field
+                
             if ((USER.SAVE_INTENSITY==1)|(not(USER.NOABSORBED))): # scalar intensity in each cell
+                tx = time.time()
                 cl.enqueue_copy(commands[ID], TMP, INT_buf[ID])   # ~ total field
                 commands[ID].finish()
+                # print("\n.... pull %.3f seconds" % (time.time()-tx))
                 if (not(USER.NOABSORBED)):
+                    # This IO can be very slow... much more than all the other computations combined !!!!!
+                    # ... iff FABSORBED is mmap file => use "mmapabs 0", if possible                      
+                    # vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+                    tx = time.time()
                     FABSORBED[:, OIFREQ] += TMP ;  # all scalings later; using OIFREQ <= IFREQ (in case LIB_ABS)
+                    # print(".... copy to FABSORBED: %.3f seconds\n" % (time.time()-tx))                    
+                    # ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ 
                 if (USER.SAVE_INTENSITY==1):
                     for level in range(LEVELS):
                         coeff                  =  KDEV * (PLANCK*FREQ/ABS) * (8.0**level)
                         a, b                   =  OFF[level], OFF[level]+LCELLS[level]
                         # += because we have PS, BG, diffuse emission separately
                         INTENSITY[a:b, IFREQ] +=  coeff * TMP[a:b] / DENS[a:b]
+                        
             if (USER.SAVE_INTENSITY==2):
                 for icomp in range(4):
                     BUFS = [INT_buf[ID], INTX_buf[ID], INTY_buf[ID], INTZ_buf[ID]]
@@ -1438,16 +1449,12 @@ else:
                         # others will be later divided by INTENSITY[:,:,0]
                 
             Tpost = time.time()-Tpost
+            
             if (VERBOSE):
-                sys.stdout.write('   %7.2f\n' % (time.time()-T000))
-                #sys.stdout.write(' push %7.2f pre %7.2f\n' % (Tpush, Tpre))
+                sys.stdout.write('   %7.2f\n' % (time.time()-T000))   # total time per frequency
+                # sys.stdout.write('   Tpre %7.3f   push %7.3f   Tker %7.3f   Tpost %7.3f\n' % (Tpre, Tpush, Tker, Tpost))
                 sys.stdout.flush()
             
-            if (0): 
-                print("PAUSING 10...")
-                time.sleep(5)
-                print("PAUSING 5...")
-                time.sleep(5)
                 
             
         # FOR FREQUENCY ======
@@ -1584,6 +1591,7 @@ if (not('SUBITERATIONS' in USER.KEYS)):
             
                 G = 0.0  # not used !
                 if (WITH_ABU>0): # ABS, SCA vectors
+                    t123 = time.time()
                     OPT[:,:] = 0.0
                     if (USER.SINGLE_ABU):
                         OPT[:,0]  +=       ABU  * AFABS[0][IFREQ]
@@ -1601,7 +1609,9 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                     if (WITH_MSF):
                         for idust in range(NDUST):
                             ABS[idust] = AFABS[idust][IFREQ]
-                            SCA[idust] = AFSCA[idust][IFREQ]                        
+                            SCA[idust] = AFSCA[idust][IFREQ]
+                    t123 = time.time() - t123
+                    # print("------------------------------------------ abundances transferred: %.3e seconds" % t123)
                 else:               # constant abundance, ABS, SCA, G are scalar
                     ABS[0], SCA[0] = 0.0, 0.0
                     for idust in range(NDUST):
@@ -1930,7 +1940,7 @@ if (not('SUBITERATIONS' in USER.KEYS)):
 
         if (not(USER.NOSOLVE)):
             # This works only with USER.NOABSORBED=True, when we have array EMIT that 
-            # at this point already contains the integrated absorbed enery
+            # at this point already contains the integrated absorbed energy
             if (VERBOSE): print('Calculate temperatures')
             TNEW = zeros(CELLS, float32)
             if (NDUST>1):
@@ -2067,23 +2077,48 @@ if (not('SUBITERATIONS' in USER.KEYS)):
         # Calculate emission
         if (not(USER.NOSOLVE)):
             if (VERBOSE): print("Calculate emission") 
-            # If we have NOSOLVE==False, we have calculate TNEW above
+            # If we have NOSOLVE==False, we have calculated TNEW above
+            t00 = time.time()
             FTMP = zeros(REMIT_NFREQ, float64)
             if ('CLE' in USER.KEYS):                 # do emission calculation on device
-                kernel_emission = program[0].Emission
-                # FREQ, FABS,   DENS, T, EMIT
-                kernel_emission.set_scalar_arg_dtypes([np.float32, np.float32, None, None, None])
                 cl.enqueue_copy(commands[0], EMIT_buf[0], TNEW)
-                # Note:  EMIT_buf is reused for temperature, TABS_buf for the resulting emission
-                #        ... because EMIT_buf is read only!
-                a, b = REMIT_I1, REMIT_I2+1
-                for ifreq in range(a, b):
-                    kernel_emission(commands[0], [GLOBAL,], [LOCAL,], float(FFREQ[ifreq]), float(AFABS[0][ifreq]),
-                    #         *** T ***  *** emission ***
-                    DENS_buf[0], EMIT_buf[0],  TABS_buf[0])
-                    cl.enqueue_copy(commands[0], EMIT, TABS_buf[0])
-                    # EMITTED ~ directly EMIT, no scaling with FACTOR --- *= FACTOR IS ALREADY IN THE KERNEL !!!
-                    EMITTED[:, ifreq-REMIT_I1] = EMIT  #  FACTOR x PHOTONS / Hz / cm3
+                if ('EBATCH' in USER.KEYS):
+                    # Calculate batches of cells, all frequencies at the same time
+                    # Is this faster for IO ?
+                    # note: EMITTED = EMITTED[CELLS, REMIT_I2-REMIT_I1+1
+                    nfreq       =  REMIT_I2+1 - REMIT_I1                #  only this many in EMITTED
+                    batch       =  [32768, 65536, 131072, 262144][1]
+                    E_FREQ_buf  =  cl.Buffer(context[0], mf.READ_ONLY,  4*nfreq)
+                    E_ABS_buf   =  cl.Buffer(context[0], mf.READ_ONLY,  4*nfreq)
+                    E_EMIT_buf  =  cl.Buffer(context[0], mf.WRITE_ONLY, 4*batch*nfreq)  # E_EMIT[batch, nfreq]
+                    kernel_emission2 = program[0].Emission2
+                    kernel_emission2.set_scalar_arg_dtypes([np.int32, np.int32, np.int32, None,None,None,None,None])
+                    ###
+                    cl.enqueue_copy(commands[0], E_FREQ_buf, asarray(FFREQ[   REMIT_I1:(REMIT_I2+1)], float32))
+                    cl.enqueue_copy(commands[0], E_ABS_buf,  asarray(AFABS[0][REMIT_I1:(REMIT_I2+1)], float32)) #  FABS... only one dust!
+                    tmp = zeros((batch, nfreq), float32)
+                    for a in arange(0, CELLS-1, batch): # cells [a,b[, frequencies [REMIT_I1, REMIT_I2]
+                        b = min([a+batch, CELLS])
+                        kernel_emission2(commands[0], [GLOBAL,], [LOCAL,], a, b, nfreq, 
+                                         E_FREQ_buf, E_ABS_buf,    DENS_buf[0], EMIT_buf[0],   E_EMIT_buf)
+                        cl.enqueue_copy(commands[0], tmp, E_EMIT_buf) # tmp[cells, nfreq]
+                        EMITTED[a:b, :] = tmp[0:(b-a),:]
+                    ###                    
+                    del tmp, E_FREQ_buf, E_ABS_buf, E_EMIT_buf
+                else:
+                    kernel_emission = program[0].Emission
+                    # FREQ, FABS,   DENS, T, EMIT
+                    kernel_emission.set_scalar_arg_dtypes([np.float32, np.float32, None, None, None])
+                    # Note:  EMIT_buf is reused for temperature, TABS_buf for the resulting emission
+                    #        ... because EMIT_buf is read only!
+                    a, b = REMIT_I1, REMIT_I2+1
+                    for ifreq in range(a, b):
+                        kernel_emission(commands[0], [GLOBAL,], [LOCAL,], float(FFREQ[ifreq]), float(AFABS[0][ifreq]),
+                        #         *** T ***  *** emission ***
+                        DENS_buf[0], EMIT_buf[0],  TABS_buf[0])
+                        cl.enqueue_copy(commands[0], EMIT, TABS_buf[0])
+                        # EMITTED ~ directly EMIT, no scaling with FACTOR --- *= FACTOR IS ALREADY IN THE KERNEL !!!
+                        EMITTED[:, ifreq-REMIT_I1] = EMIT  #  FACTOR x PHOTONS / Hz / cm3
                 ####
             elif (not('MPE' in USER.KEYS)):          # emission with single host thread
                 for icell in range(CELLS):          # loop over the GLOBAL large array
@@ -2121,7 +2156,9 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                     
             del FTMP            
             Tsolve = time.time()-t0
-        
+            if (VERBOSE):
+                print("Calculate emission: %.1f seconds" % (time.time()-t00))
+            
         if (VERBOSE): print("--- End of iteration ---")
         # end of -- for iteration
         if (0):
@@ -2665,7 +2702,7 @@ if (not(USER.NOABSORBED)):
     # for icell in range(CELLS):    FABSORBED[icell,:] /= DENS[icell]
     # Faster alternative
     # FABSORBED[CELLS, NFREQ]
-    if (VERBOSE): print("Update absorbed (mmap)") 
+    if (VERBOSE): print("Save and delete absorbed") 
     for level in range(LEVELS):
         a, b      =   OFF[level], OFF[level]+LCELLS[level]   # index limits for cells on current level
         if (level==0):
@@ -2714,11 +2751,18 @@ if (not(USER.NOABSORBED)):
             TMP.tofile(fp)
         fp.close()
         
+
             
-    ### delete = save and delete
-    del FABSORBED   # writes the rest of updates to USER.file_absorbed
+    if (USER.MMAP_ABSORBED==0):
+        fpa = open(USER.file_absorbed, 'wb')
+        asarray([CELLS, ONFREQ], int32).tofile(fpa) 
+        FABSORBED.tofile(fpa)
+        fpa.close()
+        
+    del FABSORBED   # writes the rest of updates to USER.file_absorbed    
     if (VERBOSE): print("FABSORBED saved and deleted")
     if (VERBOSE): print('*'*80)
+    
 ## del ABSORBED
 
 
@@ -2838,9 +2882,31 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
     KK *= USER.GL*PARSEC
     OIFREQ = -1
     if (VERBOSE): print("*** MAPS FOR IFREQ=[%d,%d]" % (REMIT_I1, REMIT_I2))
+
     
+    """
+    The logic should be simplified!
+        A = frequency in USER.SINGLE_MAP_FREQ
+        B = USER.SINGLE_MAP_FREQ is empty
+        C = frequency in [REMIT_I1, REMITI2+1]
+        D = frequency in [USER.MAP_FREQ[0], USER.MAP_FREQ[1]]
+        E = library and frequency in FSELECT
+        F = frequency in USER.savetau_freq
+        G = -frequency in USER.savetau_freq
+    Then:
+        - loop over all frequencies and skip frequency only if:
+            not(A) and (B and not(C)) and not(D) and not(E) and not(F) and not(D)
+        - save spectrum if  A or (B and C) or D
+        - save tau if E
+        - save column density if F        
+    """
+    
+    # for IFREQ in range(REMIT_I1, REMIT_I2+1)  # loop over frequencies [REMIT_I1, REMIT_I2]
     first_freq = True
-    for IFREQ in range(REMIT_I1, REMIT_I2+1):  # loop over frequencies [REMIT_I1, REMIT_I2]
+    for IFREQ in range(NFREQ):  # loop over frequencies [REMIT_I1, REMIT_I2]
+        
+        save_spe = (IFREQ>=REMIT_I1) & (IFREQ<=REMIT_I2)
+        
         # with LIB_MAPS, the loop is always over all NFREQ frequencies but only frequencies in FSELECT processed
         FREQ = FFREQ[IFREQ]         
         um   = f2um(FREQ)
@@ -2853,7 +2919,7 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
                 # print("  FREQ %12.4e  ... closest FSELECT %12.4e\n" % (FREQ, USER.FSELECT[iiii]))
                 continue                    
         # print("FREQ %.3e Hz = %8.2f um   ---   MAP_FREQ  [%.3e, %.3e] Hz  =  [%7.2f, %7.2f] um" % (FREQ, f2um(FREQ), USER.MAP_FREQ[0], USER.MAP_FREQ[1],  f2um(USER.MAP_FREQ[1]), f2um(USER.MAP_FREQ[0])))
-            
+        
         # OIFREQ is   [0,NFREQ[ or [REMIT_I1,REMIT_I2] and with LIB_MAPS it is [0, ONFREQ[
         #  => it is always directly the index to the EMITTED array
         OIFREQ += 1         
@@ -2862,33 +2928,36 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
         if (USER.LIB_MAPS):
             if (VERBOSE): 
                 print(" LIB_MAPS ---- map %d, frequency %d in the full frequency grid" % (OIFREQ, IFREQ))
-
             
         save_tau, save_colden = 0, 0
         if (len(USER.savetau_freq)>0):
             tmp =   abs((USER.savetau_freq-FREQ)/FREQ)
             if (min(tmp)<0.001): 
-                save_tau = True      # this frequency is in USER.savetau_freq
+                save_tau = 1                          # this frequency is in USER.savetau_freq
             tmp =   abs((-asarray(USER.savetau_freq)-FREQ)/FREQ)
             if (min(tmp)<0.001):                      # -FREQ in savetau_freq => save column density
                 save_tau, save_colden = 0, 1
+            if ((save_tau==0)&(first_freq)&(min(USER.savetau_freq)<=0.0)):
+                save_colden = 1
             tmp =   abs(asarray(USER.savetau_freq))
-            if ((first_freq)&(min(asarray(tmp))<0.001)):
-                save_tau     = 0     # first frequency, if 0.0 in savetau_freq => save column density
-                save_colden  = 1
-
-        # print("save_tau %d, save_colden %d" % (save_tau, save_colden))
-        # print("savetau_freq ", USER.savetau_freq)
         first_freq = False
+        
+                
+                
+
         
         if (len(USER.SINGLE_MAP_FREQ)>0): # user picks individual map frequencies
             ii = argmin(abs(FREQ-USER.SINGLE_MAP_FREQ))
             if ((abs(FREQ-USER.SINGLE_MAP_FREQ[ii])/FREQ)>0.005):
-                if (VERBOSE): print("      UM %6.2f ---NOT--- IN SINGLE_MAP_FREQ, CLOSEST %.2f um" % (f2um(FREQ), f2um(USER.SINGLE_MAP_FREQ[ii])))
-                if ((save_tau==0)&(save_colden==0)):
-                    continue
-            if (VERBOSE): print("   *** DOING SINGLE_MAP_FREQ[%d] = %.3e = %6.1f um   (save_tau=%d, save_colden=%d)"  % (ii, FREQ, f2um(FREQ), save_tau, save_colden))
+                save_spe = 0 
+            # if (VERBOSE): print("   *** DOING SINGLE_MAP_FREQ[%d] = %.3e = %6.1f um   (save_tau=%d, save_colden=%d)"  % (ii, FREQ, f2um(FREQ), save_tau, save_colden))
 
+            
+        if (VERBOSE):
+            print("IFREQ=%3d/%3d  %9.2f um -- save_spe %d, save_tau %d, save_colden %d" % (IFREQ, NFREQ, um, save_spe, save_tau, save_colden))
+            
+        if ((save_spe==0)&(save_tau==0)&(save_colden==0)): continue
+            
             
         # optical parameters
         if (WITH_ABU>0): # ABS, SCA, G are vectors... precalculated into OPT
@@ -2913,23 +2982,22 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
                 ABS[0] += AFABS[idust][IFREQ]
                 SCA[0] += AFSCA[idust][IFREQ]
         # in map-making ABS and SCA are scalar kernel arguments
-        if (USER.LIB_MAPS):
-            EMIT[:] = KK * FREQ * EMITTED[:, OIFREQ]
-        else:
-            ii = IFREQ
-            if (REMIT_NFREQ<NFREQ):   # EMITTED has only REMIT_NFREQ<=NFREQ frequencies
-                # print("File has %d < %d frequencies" % (REMIT_NFREQ, NFREQ))
-                ii = IFREQ-REMIT_I1   # frequency index to elements in EMITTED
-            EMIT[:] = KK * FREQ * EMITTED[:, ii]
-
-        # check if we have  FREQ ==  USER.savetau_freq  ==> SAVE_COLDEN=0 and we save optical depth
-        #                   FREQ == -USER.savetau_freq  ==> SAVE_COLDEN=1 and we save column density
-        #                   USER.savetau_freq = 0.0 => save column density during first map
-
         
-        # Use kernel to do the LOS integration:  EMIT -> MAP
-        # DENSITY is already on device, EMIT becomes number of emitted photons * 4*pi/(h*f)
-        cl.enqueue_copy(commands[0], EMIT_buf[0], EMIT)
+        
+        if (save_spe>0): # no need to update EMIT for column density or optical depth
+            if (USER.LIB_MAPS):
+                EMIT[:] = KK * FREQ * EMITTED[:, OIFREQ]
+            else:
+                ii = IFREQ
+                if (REMIT_NFREQ<NFREQ):   # EMITTED has only REMIT_NFREQ<=NFREQ frequencies
+                    # print("File has %d < %d frequencies" % (REMIT_NFREQ, NFREQ))
+                    ii = IFREQ-REMIT_I1   # frequency index to elements in EMITTED
+                EMIT[:] = KK * FREQ * EMITTED[:, ii]
+            # Use kernel to do the LOS integration:  EMIT -> MAP
+            # DENSITY is already on device, EMIT becomes number of emitted photons * 4*pi/(h*f)
+            cl.enqueue_copy(commands[0], EMIT_buf[0], EMIT)
+            
+            
         FFF = None
         # print("using_fits = %d" % using_fits)
         for idir in range(NDIR): #  loop over directions
@@ -2951,16 +3019,17 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
                 LCELLS_buf[0], OFF_buf[0], PAR_buf[0], DENS_buf[0], ABS[0], SCA[0], USER.MAPCENTRE,
                 USER.INTOBS, OPT_buf[0], SAVETAU_buf, save_colden)
             cl.enqueue_copy(commands[0], MAP, MAP_buf)  # copy result to MAP
-            # write the frequency maps to the files (whatever the size of MAP)
-            if (using_fits):
-                if (NDIR==1): filename =  "%s_%s.fits"      % (USER.FITS_PREFIX, ums)
-                else:         filename =  "%s_%s_%03d.fits" % (USER.FITS_PREFIX, ums, idir)
-                #   pixel is fraction MAP_DX of the root cell, which is USER.GL pc... and distance is USER.DISTANCE pc
-                FFF = MakeFits(USER.FITS_RA, USER.FITS_DE, USER.GL*USER.MAP_DX/[1000.0, USER.DISTANCE][USER.DISTANCE>0.0], USER.NPIX['x'], USER.NPIX['y'], [], sys_req='fk5')
-                FFF[0].data[:,:] = MAP
-                FFF.writeto(filename, overwrite=True)
-            else:  
-                asarray(MAP,float32).tofile(fpmap[idir])       # directly all the selected frequencies
+            if (save_spe>0):
+                # write the frequency maps to the files (whatever the size of MAP)
+                if (using_fits):
+                    if (NDIR==1): filename =  "%s_%s.fits"      % (USER.FITS_PREFIX, ums)
+                    else:         filename =  "%s_%s_%03d.fits" % (USER.FITS_PREFIX, ums, idir)
+                    #   pixel is fraction MAP_DX of the root cell, which is USER.GL pc... and distance is USER.DISTANCE pc
+                    FFF = MakeFits(USER.FITS_RA, USER.FITS_DE, USER.GL*USER.MAP_DX/[1000.0, USER.DISTANCE][USER.DISTANCE>0.0], USER.NPIX['x'], USER.NPIX['y'], [], sys_req='fk5')
+                    FFF[0].data[:,:] = MAP
+                    FFF.writeto(filename, overwrite=True)
+                else:  
+                    asarray(MAP,float32).tofile(fpmap[idir])   # directly all the selected frequencies
             if (save_colden>0):
                 if (VERBOSE): print("SAVE_COLDEN   file_savetau = %s" % USER.file_savetau)
                 FFF = MakeFits(USER.FITS_RA, USER.FITS_DE, USER.GL*USER.MAP_DX/[1000.0, USER.DISTANCE][USER.DISTANCE>0.0], USER.NPIX['x'], USER.NPIX['y'], [], sys_req='fk5')
@@ -3547,16 +3616,13 @@ if ((USER.POLMAP>0)&(USER.NPIX['y']>0)):  # NORMAL POLARISATION MAPS
     del BB[1]
     del BB[0]
     ###
-    MAP_buf, kernel_map, fpmap = None, None, []
+    MAP_buf, kernel_map  = None, None
     MAP  = None
 
     MAP        = zeros(4*USER.NPIX['x']*USER.NPIX['y'], float32)  # [ I, Q, U, N ] maps
     MAP_buf    = cl.Buffer(context[0], mf.WRITE_ONLY,  4*4*USER.NPIX['x']*USER.NPIX['y'])
     kernel_map = program_map.PolMapping
     GLOBAL     = int((1+floor((USER.NPIX['x']*USER.NPIX['y'])/LOCAL))*LOCAL)
-    for idir in range(NDIR):
-        fpmap.append( open("polmap_dir_%02d.bin" % idir, "wb") )
-        asarray([USER.NPIX['x'], USER.NPIX['y']], int32).tofile(fpmap[idir])
         
     kernel_map.set_scalar_arg_dtypes(
     [ np.float32, clarray.cltypes.int2, None, None,
@@ -3610,9 +3676,9 @@ if ((USER.POLMAP>0)&(USER.NPIX['y']>0)):  # NORMAL POLARISATION MAPS
             # MAP is either a single Healpix map or a flat map of (I, Q, U, N)... or some statistics
             cl.enqueue_copy(commands[0], MAP, MAP_buf)
             # write this frequency to file -- I, Q, U, N
-            asarray(MAP, float32).tofile(fpmap[idir])
-    for idir in range(NDIR):
-        fpmap[idir].close()
+            F = MakeFits(USER.FITS_RA, USER.FITS_DE, USER.GL*USER.MAP_DX/[1000.0, USER.DISTANCE][USER.DISTANCE>0.0], USER.NPIX['x'], USER.NPIX['y'], [], sys_req='fk5')
+            F[0].data = MAP.reshape(4, USER.NPIX['y'], USER.NPIX['x'])
+            F.writeto("polmap_%.1f_%02d.fits" % (f2um(FREQ), idir), overwrite=True)
 # end of -- USER.POLMAP>0
 
 
@@ -3783,6 +3849,11 @@ if (USER.WITH_ROI_LOAD):    del ROI_LOAD
 ###################################################################################
 Tpolmap = time.time()-t0
 
+if (USER.MMAP_EMITTED==0):
+    fp = open(USER.file_emitted, "wb")
+    asarray([CELLS, REMIT_NFREQ], int32).tofile(fp)
+    EMITTED.tofile(fp)
+    fp.close()
 
 del EMITTED   # this also writes the rest of EMITTED to disk
 
@@ -3793,3 +3864,7 @@ if (VERBOSE):
     print("        Tsolve    %9.4f seconds" % Tsolve)
     print("        Tmap      %9.4f seconds" % Tmap)
     
+
+t0000 = time.time()-t0000
+print("@@ ASOC.py  %.2f seconds WC" % t0000)
+sys.stdout.flush()

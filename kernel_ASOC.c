@@ -1,4 +1,3 @@
-
 #include "kernel_ASOC_aux.c"
 
 
@@ -93,7 +92,7 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
    // Each work item simulates BATCH packages
    //  SOURCE==0   --  PSPAC   -- all from the same cell
    //  SOURCE==1   --  BGPAC   -- all from the same surface element
-   //  SOURCE==2   --  ROIPAC  -- one surface element per work item, BATCH times over healpix map
+   //  SOURCE==3   --  ROIPAC  -- one surface element per work item, BATCH times over healpix map
    if ((SOURCE==1)&&(id>=(8*AREA))) return ;  // BGPAC=BATCH*(8*AREA), GLOBAL>=8*AREA (2017-12-24)
 #if (WITH_ROI_LOAD)
    // there are 100 work items per surface element, PACKETS == number of surface elements
@@ -569,19 +568,16 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
             POS0      =  POS ;   // because GetStep does coordinate transformations...
             ds        =  GetStep(&POS, &DIR, &level, &ind, DENS, OFF, PAR) ; // POS, level, ind updated !!
 #if (WITH_ABU>0)
-            dtau      =  ds*DENS[oind]*GOPT(2*oind+1) ;
+	    tauA      =  ds*DENS[oind]*GOPT(2*oind) ;    // OPT = total cross section, sum over dust species
+            dtau      =  ds*DENS[oind]*GOPT(2*oind+1) ;  // optical depth for scattering !!!
 #else
+	    tauA      =  ds*DENS[oind]*(*ABS) ;       // ABS is basically a scalar
             dtau      =  ds*DENS[oind]*(*SCA) ;
 #endif
             if (free_path<(tau+dtau)) {  // tau = optical depth since last scattering
                ind = ind0 ;       // what if we scatter on step ending outside the cloud?
                break ;            // scatter before ds
             }
-#if (WITH_ABU>0)
-            tauA      =  ds*DENS[oind]*GOPT(2*oind) ;  // OPT = total cross section, sum over dust species
-#else
-            tauA      =  ds*DENS[oind]*(*ABS) ;       // ABS is basically a scalar
-#endif
             
             
 #if 1
@@ -674,7 +670,9 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
                
 #if 1
                if (steps>1000) {
+# if (DEBUG>0)
                   if (steps%1000==0) printf("id=%6d, steps %d\n", id, steps) ;
+# endif
                   // return ;
                }
 #endif          
@@ -2472,7 +2470,9 @@ __kernel void SimBgSplit(const      int      PACKETS,     //  0 - number of pack
 # if 1
                steps += 1 ;
                if (steps>30000) {  // 30000 step per a single ray (without splits) should be too much !!!
+# if (DEBUG>0)
                   printf("[%d] 30000 steps !!!!\n", id) ;
+# endif
                   return ;
                }
 # endif
@@ -2565,7 +2565,9 @@ __kernel void SimBgSplit(const      int      PACKETS,     //  0 - number of pack
                      NBUF0   = NBUF ;   // where we start adding rays for the current split, NBUF0 = will be the current main ray
                      // printf("*** ADD -- FIRST SLOT NBUF=%d\n", NBUF) ;
                      if (NBUF>(MAX_SPLIT-10)) {
+# if (DEBUG>0)
                         printf("!!!!!!!!!!!!!!!!!!!! NBUF IS FULL, NBUF=%d, steps %d !!!!!!!!!!!!!!!!!!!!", NBUF, steps) ;
+# endif
                         NBUF = 0 ;  ind = -1 ; break ;  // the whole ray is terminated? *must* be very rare
                      }
                      
@@ -2810,7 +2812,9 @@ __kernel void SimBgSplit(const      int      PACKETS,     //  0 - number of pack
                if (ds<=0.0) break ;
             }
             if (ind0>=NDUST) {
+# if (DEBUG>0)
                printf("(a) ?????\n") ;
+# endif
                ind0 = NDUST-1 ;
             }
             Scatter(&DIR, &CSC[ind0*BINS], &rng) ; // use the scattering function of the ind0:th dust species
@@ -3163,7 +3167,9 @@ __kernel void SimHpSplit(const      int      PACKETS,     //  0 - number of pack
 # if 1
             steps += 1 ;
             if (steps>30000) {  // 30000 step per a single ray (without splits) should be too much !!!
+# if (DEBUG>0)
                printf("[%d] 30000 steps !!!!\n", id) ;
+# endif
                return ;
             }
 # endif
@@ -3507,7 +3513,9 @@ __kernel void SimHpSplit(const      int      PACKETS,     //  0 - number of pack
             if (ds<=0.0) break ;
          }
          if (ind0>=NDUST) {
+# if (DEBUG>0)
             printf("(a) ?????\n") ;
+# endif
             ind0 = NDUST-1 ;
          }
          Scatter(&DIR, &CSC[ind0*BINS], &rng) ; // use the scattering function of the ind0:th dust species

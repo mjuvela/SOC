@@ -1,5 +1,7 @@
 #define HG_TEST 0
 
+// #pragma OPENCL EXTENSION cl_khr_fp64 : enable
+
 #define TWOPI     6.28318531f
 #define TAULIM    5.0e-4f
 #define PIHALF    1.5707963268f
@@ -720,13 +722,17 @@ __kernel void EqTemperature(const int       level,
       iE        =  clamp((int)floor(oplgkE * log10((Ein/beta)/Emin)), 0, NE-2) ;
       wi        =  (Emin*pown(kE,iE+1)-(Ein/beta)) / (Emin*pown(kE, iE)*(kE-1.0f)) ;
       // printf("wi %8.4f\n", wi) ;
+#if 0
       if ((ind<0)||(ind>=CELLS)) printf("????\n") ;
+#endif
       TNEW[ind] =  (DENS[ind]>1.0e-7f) ?  clamp(wi*TTT[iE] + (1.0f-wi)*TTT[iE+1], 3.0f, 1600.0f) : (10.0f) ;
       if ((TNEW[ind]>1.0f)&&(TNEW[ind]<1000.0f)) {
          ;
       } else {
+#if 0
          printf("???    Ein %12.4e  [%12.4e, %12.4e]         T = %.3e,  NE=%d, kE=%.6f\n",
                 Ein,   Emin, Emin*pown(kE, NE), TNEW[ind], NE,   kE) ;
+#endif
       }
    }
    // }
@@ -750,6 +756,35 @@ __kernel void Emission(const float     FREQ,
    }
 }
 
+
+
+__kernel void Emission2(const int c0,            // index of the first cell
+                        const int c1,            // index of the last cell + 1
+                        const int nfreq,         // number of frequencies (nfreq, not NFREQ!), nfreq<=NFREQ
+                        __global float *FREQ,    // vector of all frequencies  FREQ[nfreq]
+                        __global float *FABS,    // vector of all absorption cross sections FABS[nfreq]
+                        __global float *DENS,    // cell densities DENS[CELLS]
+                        __global float *T,       // dust temperature T[CELLS]
+                        __global float *EMIT) {  // emission EMIT[batch,freq]
+   // Emission() calculates emission for a single frequency, all cells.
+   // Emission2() calculates emission for cells [c0,c1[, frequencies [f0,f1[
+   int id = get_global_id(0), gs = get_global_size(0) ;
+   float freq, t ;
+   for(int icell=c0+id; icell<c1; icell+=gs) { // batch number of cells, all frequencies
+      t = T[icell] ;
+      for(int ifreq=0; ifreq<nfreq; ifreq++) {
+         freq  =  FREQ[ifreq] ;
+         EMIT[(icell-c0)*nfreq+ifreq] = 
+           (2.79639459e-20f*FACTOR) * FABS[ifreq] * (freq*freq/(exp(4.7995074e-11f*freq/t)-1.0f)) / LENGTH ;
+      }
+#if 0
+      if (id==0) {
+         printf(" %8d freq %10.3e  T %10.3e  FABS %10.3e    FACTOR %10.3e => %10.3e\n",
+                c1, freq,          t,        FABS[0],   FACTOR,          EMIT[(icell-c0)*nfreq+0]) ;
+      }
+#endif
+   }  
+}
 
 
 #if 0

@@ -41,6 +41,9 @@ __kernel void EqTemperature(const int       icell,    // first cell of current b
    wi      = (Emin*pown(kE,iE+1)-(Ein/beta)) / (Emin*pown(kE, iE+1)-pown(kE, iE)) ;
    T[ind]  =  wi*TTT[iE] + (1.0-wi)*TTT[iE+1] ;
    if (Ein<=0.0f) T[ind] = 2.7f ;  // must have been a link, not real cell
+   
+#if 0
+   // Do not complain about NaN values.... one may be processing parent cells
    if (isfinite(T[ind])) {
       ;
    } else {
@@ -49,6 +52,8 @@ __kernel void EqTemperature(const int       icell,    // first cell of current b
       // printf("*********************************************************\n") ;
       T[ind] = 2.7f ;
    }
+#endif
+   
 }
 
 

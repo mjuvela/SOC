@@ -118,8 +118,8 @@ class User:
         ## self.SIM_F        = [1.2e12, 3.3e15 ] # limit simulated frequencies
         self.SIM_F        = [1.0e8, 1.0e17 ] # limit simulated frequencies
         self.LEVEL_THRESHOLD = 0         # if >0, save (polarisation) ignore large cells, level<LEVEL_THRESHOLD
-        self.INTOBS       = cl.cltypes.make_float3(-1e12,0,0) # location of an internal observer
-        self.MAPCENTRE    = cl.cltypes.make_float3(-1e12,0.0) # position towards centre of the maps
+        self.INTOBS       = cl.cltypes.make_float3(-1e12,0,0,0.0) # location of an internal observer
+        self.MAPCENTRE    = cl.cltypes.make_float3(-1e12,0.0,0.0) # position towards centre of the maps
         self.DEVICES      = 'c'      # computing devices to be used
         self.FISSION      =  0       # optional, use a subdevice with FISSION threads
         self.DSC_BINS     = 0        # angle bins in scattering function
@@ -160,7 +160,7 @@ class User:
         self.INTERPOLATE  =  0       # if *healpix* map-making uses interpolation...
         self.SEED         = pi/4.0   # seed value for random number generators
         self.MAP_FREQ     = [1.0e6, 1e18] # frequency limits for the maps to be saved [Hz]
-        self.SINGLE_MAP_FREQ = []    # individual frequencies for which only to write the maps
+        self.SINGLE_MAP_FREQ = asarray([], float32)    # individual frequencies for which only to write the maps
         self.SOLVE_ON_DEVICE = 0     # if >0, solve temperatures on device
         self.FFS          = 1        # use forced first scattering
         self.BG_METHOD    = 0        # version of the BGPAC simulation part
@@ -218,6 +218,11 @@ class User:
         self.FITS_DE       = 0.0
         self.MIRROR        = ''
         self.VERBOSE       = 1
+
+        self.MMAP_ABSORBED = 0
+        self.MMAP_EMITTED  = 0
+        
+        self.POLSIM        = 0       # for full polarisation 
         
         # read inifile
         for line in open(filename).readlines():    
@@ -238,7 +243,8 @@ class User:
                 
             if (s[0].find('mapum')==0):
                 for ss in s[1:]:
-                    self.SINGLE_MAP_FREQ.append( um2f(float(ss)) )
+                    # self.SINGLE_MAP_FREQ.append( um2f(float(ss)) )
+                    self.SINGLE_MAP_FREQ = concatenate((self.SINGLE_MAP_FREQ, asarray([um2f(float(ss)),], float32)))
                 if (len(self.SINGLE_MAP_FREQ)>1):
                     self.SINGLE_MAP_FREQ = sort(self.SINGLE_MAP_FREQ) # increasing frequency !!
                 print("ASOC: mapum ", self.SINGLE_MAP_FREQ)
@@ -300,6 +306,8 @@ class User:
                 
             if (key.find('fission')==0):     self.FISSION           = int(a)
             if (key.find('verbose')==0):     self.VERBOSE           = int(a)
+            if (key.find('mmapabs')==0):     self.MMAP_ABSORBED     = int(a)
+            if (key.find('mmapemit')==0):    self.MMAP_EMITTED      = int(a)
             if (key.find('sourcemap')==0):   self.file_sourcemap    = a
             if (key.find('tempera')==0):     self.file_temperature  = a
             if (key.find('cloud')==0):       self.file_cloud        = a
@@ -310,6 +318,7 @@ class User:
             if (key.find('split')==0):       self.DO_SPLIT          = int(a)
             if (key.find('mapint')==0):      self.MAP_INTERPOLATION = int(a)
             if (key.find('polstat')==0):     self.POLSTAT           = int(a)
+            
             
             if (key.find('platform')==0):  #  platform  #platform [ #device ]
                 self.PLATFORM   = int(a)
@@ -426,8 +435,13 @@ class User:
                 self.ROI_LOAD_SCALE = float(b)  # ROI_LOAD does not use ROI_STEP !!
                                 
             if (len(s)<4): continue
+            
+            
             # keywords with three arguments
-            key, a, b, c = s[0], s[1], s[2], s[3]            
+            key, a, b, c = s[0], s[1], s[2], s[3]
+            if (key.find('polsim')==0):    
+                self.POLSIM  =  1
+                self.BFILES  =  [ a, b, c ]            
             if (key.find('polmap')==0):
                 self.POLMAP  = 1
                 self.BFILES = [ a, b, c ]
@@ -456,7 +470,19 @@ class User:
                         pass
             if (key.find('mapcent')==0):
                 self.MAPCENTRE = cl.cltypes.make_float3(float(a), float(b), float(c))
-                                
+            if (key.find('mapview')==0): # similar (not identical!) to the same LOC keyword
+                # mapview    theta      phi       NX   NY     dx       Xc    Yc    Zc 
+                #            OBS_THETA  OBS_PHI   NPIX        MAP_DX   MAPCENTRE
+                #            s[1]       s[2]      s[3] s[4]   s[5]     s[6]  s[7]  s[8]
+                if (len(s)>=3):
+                    self.OBS_THETA = [float(s[1])*pi/180.0,]
+                    self.OBS_PHI   = [float(s[2])*pi/180.0,]
+                    if (len(s)>=5):
+                        self.NPIX   = cl.cltypes.make_int2(int(s[3]), int(s[4]))
+                        if (len(s)>=6):
+                            self.MAP_DX = float(s[5])
+                            if (len(s)>=9):
+                                self.MAPCENTRE = cl.cltypes.make_float3(float(s[6]), float(s[7]), float(s[8]))
             if (len(s)<5): continue
             if (key.find('pointsou')==0):
                 if (self.NO_PS<MAXPS):  # there is room for another point source
@@ -530,10 +556,10 @@ def read_dust(USER):
         GRAIN_SIZE    = float(tmp[2].split()[0])
         coeff         = GRAIN_DENSITY*pi*GRAIN_SIZE**2.0 * USER.GL*PARSEC  # tau / n / pc
         d             = loadtxt(filename, skiprows=4)
-        FFREQ         = d[:,0]
-        FG            = d[:,1]
-        FABS          = d[:,2] * coeff
-        FSCA          = d[:,3] * coeff
+        FFREQ         = asarray(d[:,0].copy(), float32)
+        FG            = asarray(d[:,1].copy(), float32)
+        FABS          = asarray(d[:,2]*coeff, float32)
+        FSCA          = asarray(d[:,3]*coeff, float32)
         if ((USER.NFREQ>0)&(USER.NFREQ!=len(FFREQ))):
             print("*** Error in optical parameters: dusts must have same frequency grid")
             sys.exit()
@@ -882,7 +908,10 @@ def mmap_emitted(USER, CELLS, LEVELS, LCELLS, REMIT_NFREQ, OFF, DENS):
             
         # mmap object, frequency runs faster --- note that offset is in bytes
         # print("EMITTED ~ %s" % USER.file_emitted)
-        EMITTED=np.memmap(USER.file_emitted, dtype='float32',mode='r+', shape=(CELLS, REMIT_NFREQ),offset=8) # header only CELLS, NFREQ
+        if (USER.MMAP_EMITTED):
+            EMITTED=np.memmap(USER.file_emitted, dtype='float32',mode='r+', shape=(CELLS, REMIT_NFREQ),offset=8) # header only CELLS, NFREQ
+        else:
+            EMITTED = fromfile(USER.file_emitted,float32)[2:].reshape(CELLS, REMIT_NFREQ)
         
         # print 'EMITTED FULL RANGE', prctile(ravel(EMITTED), (0,50.0,100.0))
         # We might need to copy data to a deeper hierarchy levels (increase depth)
@@ -1676,10 +1705,10 @@ def MakeFits(lon, lat, pix, m, n, freq=[], sys_req='fk5'):
     import astropy.io.fits as pyfits
     nchn      =  max([1, len(freq)])
     if (nchn>1):
-        print("*** CUBE ***")
+        # print("*** CUBE ***")
         A     =  zeros((nchn, n, m), float32)
     else:
-        print("*** 2D ***")
+        # print("*** 2D ***")
         A     =  zeros((n, m), float32)
     hdu       =  pyfits.PrimaryHDU(A)
     F         =  pyfits.HDUList([hdu])
@@ -1713,3 +1742,113 @@ def MakeFits(lon, lat, pix, m, n, freq=[], sys_req='fk5'):
         F[0].data = zeros((n, m), float32)
     return F
     
+
+
+
+def read_polarisation_parameters(FREQ): # @@
+    """
+    Read dust parameters for full polarisation simulation.
+    Input:
+        FREQ  =  grid of frequencies used in the SOC calculations
+    Returns:
+        POLDAR = dictionary of the dust parameters interpolated to freq
+    """
+    """
+    This reads the numpy array files. 
+    The cross sections are functions of wavelength and alignment radius. 
+    The alignment radius is crudely sampled here between 1e-7 m and and 1e-3 m in 20 discrete points. 
+    This was sampled between the minimum and maximum of the effective radius of the particle
+    axis 0: aligned radius
+    axis 1: wavelength
+    """
+    folder   = os.path.dirname(os.path.realpath(__file__))+"/../rt_polarisation"    
+    # 104 frequencies
+    wl       = np.load(folder+'/graphite_oblate_data/wl.npy') #cm   wavelengths
+    wl      *= 1.0e6       # inputs [m]
+    # print("wl", min(wl), max(wl))
+    # (Cpar + Cperp)/2 integrated over radii
+    #    [20,104]  =  20 radius values,  104 wavelengths
+    fCabs    =  np.load(folder+'/silicate_oblate_data/C_abs_mean.npy')   # [na, num] -> [num]
+    fdCabs   =  np.load(folder+'/silicate_oblate_data/delta_C_abs.npy')  # [na, num]      
+    fCsca    =  np.load(folder+'/silicate_oblate_data/C_sca_mean.npy')   # [na, num] -> [num]
+    fdCsca   =  np.load(folder+'/silicate_oblate_data/delta_C_sca.npy')  # [na, num]      
+    fCext    =  np.load(folder+'/silicate_oblate_data/C_ext_mean.npy')   # [na, num] -> [num]     
+    fdCext   =  np.load(folder+'/silicate_oblate_data/delta_C_ext.npy')  # [na, num]      
+    fa_algn  =  np.load(folder+'/silicate_oblate_data/a_align.npy')      # [na]
+
+    if (len(fCabs)>1): # these should be just one vector = mean values
+        fCabs = fCabs[0,:]  # fCabs[nfreq]
+        fCsca = fCsca[0,:]
+        fCext = fCext[0,:]
+    
+    if (0):
+        X = [ fCabs, fdCabs, fCsca, fdCsca, fCext, fdCext, fa_algn]
+        N = [ 'fCabs', 'fdCabs', 'fCsca', 'fdCsca', 'fCext', 'fdCext', 'fa_algn']
+        for i in range(len(X)):
+            print("%10s " % N[i], X[i].shape)
+        sys.exit()
+    na       =  fdCext.shape[0]  # file contains this many sizes
+    num      =  fdCext.shape[1]  # file has this many um values
+    if (0): # original absorption and scattering curves
+        clf()
+        loglog(wl, fCabs, 'b-')
+        loglog(wl, fCsca, 'r--')
+        #show(block=True)
+        #sys.exit()
+    # Interpolate data to the frequencies FREQ
+    nfreq    =  len(FREQ)
+    Cabs     =  zeros(nfreq, float32)  # values interpolated to FREQ frequencies
+    Csca     =  zeros(nfreq, float32)     
+    Cext     =  zeros(nfreq, float32)     
+    dCabs    =  zeros((na, nfreq), float32)      
+    dCsca    =  zeros((na, nfreq), float32)      
+    dCext    =  zeros((na, nfreq), float32)
+    FROM     =  [ fCabs, fdCabs, fCsca, fdCsca, fCext, fdCext ]  # [na, num  ]  ~ wl [cm]
+    TO       =  [  Cabs,  dCabs,  Csca,  dCsca,  Cext,  dCext ]  # [na, nfreq]  ~ freq [Hz]
+    for i in range(len(FROM)):
+        A = FROM[i]
+        B = TO[i]
+        if (len(A.shape)==1):
+            ip   = interp1d(wl, A, bounds_error=False, fill_value=(A[0], A[-1]))
+            B[:] = ip(f2um(FREQ))         #  B[nfreq]        
+        else:
+            for ia in range(na):
+                ip      = interp1d(wl, A[ia,:], bounds_error=False, fill_value=(A[ia,0], A[ia,-1]))
+                B[ia,:] = ip(f2um(FREQ))  #  B[na, nfreq]        
+    if (0): # resampled absorption and scattering curves
+        print("fCabs")
+        print(fCabs)
+        print("Cabs")
+        print(Cabs)
+        loglog(f2um(FREQ), Cabs, 'c--')
+        loglog(f2um(FREQ), Csca, 'm--')
+        show(block=True)
+        sys.exit()
+    ####
+    a_algn   = zeros(na, float32)  # ?????? input file, discreti grain size
+    ##
+    # host side main loop: copy to kernel only values for the current frequency
+    PPAR = {
+       'nsize' :  Cext.shape[0],   # number of grain size bins
+       'Cabs'  :  asarray(Cabs, float32),   # [ nsize, nfreq ]
+       'dCabs' :  asarray(dCabs, float32), 
+       'Csca'  :  asarray(Csca, float32), 
+       'dCsca' :  asarray(dCsca, float32), 
+       'Cext'  :  asarray(Cext, float32), 
+       'dCext' :  asarray(dCext, float32), 
+       'a_algn':  asarray(a_algn, float32) 
+       }
+    return PPAR
+       
+
+
+def get_floats(s):
+    # for list of strings, return maximum number of floats that could be read
+    res = []
+    for i in range(len(s)):
+        try:
+            x = float(s[i])
+            res.append(x)
+        except:
+            pass
+    return asarray(res, float32)
