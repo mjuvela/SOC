@@ -719,12 +719,16 @@ __kernel void EqTemperature(const int       level,
    for(int i=id; i<LCELLS[level]; i+=gs) {   // loop over cells on a given level
       ind       =  OFF[level] + i ;
       Ein       =  (scale/adhoc) * EMIT[ind] * pown(8.0f, level) / DENS[ind] ; // 1e10 == ADHOC on host !!!!
+
+#if (CR_HEATING>0)
+      // for A2E_MABU.py CR_HEATING is integer (0=nothing, 1=CR, 2=2xCR, 3=ad hoc gas-dust)
+      // for ASOC.py     CR_heating is just a flag, CR_HEATING_RATE multiplied for default CR rate
+      Ein      +=  1.0e-27f * FACTOR * CR_HEATING_RATE ;  // default is 1e-27, scaled by FACTOR
+#endif
+      
       iE        =  clamp((int)floor(oplgkE * log10((Ein/beta)/Emin)), 0, NE-2) ;
       wi        =  (Emin*pown(kE,iE+1)-(Ein/beta)) / (Emin*pown(kE, iE)*(kE-1.0f)) ;
       // printf("wi %8.4f\n", wi) ;
-#if 0
-      if ((ind<0)||(ind>=CELLS)) printf("????\n") ;
-#endif
       TNEW[ind] =  (DENS[ind]>1.0e-7f) ?  clamp(wi*TTT[iE] + (1.0f-wi)*TTT[iE+1], 3.0f, 1600.0f) : (10.0f) ;
       if ((TNEW[ind]>1.0f)&&(TNEW[ind]<1000.0f)) {
          ;

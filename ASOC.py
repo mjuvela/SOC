@@ -306,7 +306,7 @@ ARGS = "-D NX=%d -D NY=%d -D NZ=%d -D BINS=%d -D WITH_ALI=%d -D PS_METHOD=%d -D 
 -D LEVEL_THRESHOLD=%d -D POLRED=%d -D p00=%.4ff -D MINLOS=%.3ef -D MAXLOS=%.3ef \
 -D FFS=%d -D NODIR=%d -D USE_EMWEIGHT=%d -D SAVE_INTENSITY=%d -D NOABSORBED=%d -D INTERPOLATE=%d \
 -D ADHOC=%.5ef %s -D HPBG_WEIGHTED=%d -D WITH_MSF=%d -D NDUST=%d -D OPT_IS_HALF=%d -D POL_RHO_WEIGHT=%d \
--D MAP_INTERPOLATION=%d -D MIRROR=%d " % \
+-D MAP_INTERPOLATION=%d -D MIRROR=%d -D CR_HEATING=%d -D CR_HEATING_RATE=%.3ef" % \
 (  NX, NY, NZ, USER.DSC_BINS, USER.WITH_ALI, USER.PS_METHOD, FACTOR,
    CELLS, int(USER.AREA), max([1,int(USER.NO_PS)]), WITH_ABU, USER.ROI_MAP, MAX_SPLIT, SELEM,
    USER.ROI_STEP, USER.ROI_NSIDE, USER.WITH_ROI_LOAD, USER.WITH_ROI_SAVE,
@@ -316,7 +316,7 @@ ARGS = "-D NX=%d -D NY=%d -D NZ=%d -D BINS=%d -D WITH_ALI=%d -D PS_METHOD=%d -D 
    USER.LEVEL_THRESHOLD, len(USER.file_polred)>0, USER.p0, USER.MINLOS, USER.MAXLOS,
    USER.FFS, NODIR, USER.USE_EMWEIGHT, USER.SAVE_INTENSITY,  USER.NOABSORBED, USER.INTERPOLATE, 
    ADHOC, USER.kernel_defs, USER.HPBG_WEIGHTED, WITH_MSF, NDUST, USER.OPT_IS_HALF, USER.POL_RHO_WEIGHT,
-   USER.MAP_INTERPOLATION, MIRROR)
+   USER.MAP_INTERPOLATION, MIRROR, (USER.CR_HEATING>0), USER.CR_HEATING)
 # print(ARGS)
 VARGS = ""
 # VARGS += " -cl-nv-cstd=CL1.1 -cl-nv-arch sm_20 -cl-single-precision-constant -cl-mad-enable"
@@ -2759,6 +2759,7 @@ if (not(USER.NOABSORBED)):
         FABSORBED.tofile(fpa)
         fpa.close()
         
+    # FABSORBED =  FACTOR * absorbed energy per H,  FACTOR = 1e20
     del FABSORBED   # writes the rest of updates to USER.file_absorbed    
     if (VERBOSE): print("FABSORBED saved and deleted")
     if (VERBOSE): print('*'*80)
@@ -2995,6 +2996,9 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
                 EMIT[:] = KK * FREQ * EMITTED[:, ii]
             # Use kernel to do the LOS integration:  EMIT -> MAP
             # DENSITY is already on device, EMIT becomes number of emitted photons * 4*pi/(h*f)
+            #  --- KK  = (1.0e23/FACTOR) * PLANCK / (4.0*np.pi) #  1e3 = 1e23/1e20 = remove 1e20 scaling and convert to Jy/sr
+            #  --- KK *= USER.GL*PARSEC
+
             cl.enqueue_copy(commands[0], EMIT_buf[0], EMIT)
             
             

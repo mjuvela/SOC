@@ -223,7 +223,7 @@ class User:
         self.MMAP_EMITTED  = 0
         
         self.POLSIM        = 0       # for full polarisation 
-        
+        self.CR_HEATING    = 0.0     # CR heating, multiplier for the default rate, 0.0 = no CR heating
         # read inifile
         for line in open(filename).readlines():    
             # assert((DIFFUSE==1)&(WITHDUST==1)&(DISTANCE<1.0))
@@ -275,10 +275,10 @@ class User:
             if ((key.find('savetau')==0)&(len(s)>2)):
                 #     savetau   filename   um1 um2 um3 ....
                 #  if wavelength == -um[i], that means saving of column density
-                self.file_savetau  = s[1]
+                self.file_savetau  = s[1]   # prefix
                 for x in s[2:]:
-                    if (float(x)<1):  self.savetau_freq.append(0.0)  # meaning column density
-                    else:             self.savetau_freq.append(um2f(float(x)))
+                    if (float(x)<0.0):  self.savetau_freq.append(0.0)  # negative meaning column density
+                    else:               self.savetau_freq.append(um2f(float(x)))
                 print("self.savetau_freq ", self.savetau_freq)
                     
             if (key.find('pssavetau')==0):
@@ -375,6 +375,7 @@ class User:
             if (key.find('diffpac')==0):     self.DFPAC           =  int(a)
             if (key.find('seed')==0):        self.SEED            =  clip(float(a), -1.0, 1.0)
             if (key.find('dens')==0):        self.KDENSITY        =  float(a)
+            if (key.find('CR_HEATING')==0):  self.CR_HEATING      =  float(a)
             if (key.find('batch')==0):       self.BATCH           =  int(a)
             if (key.find('local')==0):       self.LOCAL           =  int(a)
             if (key.find('global')==0):      self.GLOBAL          =  int(a)

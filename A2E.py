@@ -607,4 +607,6 @@ if (FP_BY_SIZE):
     FP_BY_SIZE.close()
 
     
-print("TOTAL A2E TIME: %.4f" % total_A2E_time)    
+    
+print("TOTAL A2E TIME: %.4f" % (time.time()-total_A2E_time))
+

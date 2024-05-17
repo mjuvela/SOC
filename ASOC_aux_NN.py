@@ -1,12 +1,12 @@
-import torch                                                                                             
-import torch.nn as nn                                                                                    
-import torch.nn.functional as F                                                                          
-from   torch.utils.data import DataLoader                                                                
-from   torch.utils.data import Dataset                                                                   
-import matplotlib.pyplot as plt                                                                          
-import pickle                                                                                            
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from   torch.utils.data import DataLoader
+from   torch.utils.data import Dataset
+import matplotlib.pyplot as plt
+import pickle
 import sys, os
-import time  
+import time
 import numpy as np
 import matplotlib.pylab as plt
 
@@ -158,7 +158,7 @@ def NN_fit(prefix, dustname, cells, nnabs, nnemit, file_absorbed, file_emitted, 
             plt.plot([x[1], x[5], x[10]], 100.0*np.asarray([y[1],y[5],y[10]]), 'r+')
             plt.xlim(xx)
             plt.ylim(-0.9, 15.0)
-            plt.ylabel(r'$\sigma \/ \/ \rm [%s]$' % '\%')
+            plt.ylabel(r'$\sigma \/ \/ \rm [%s]$' % r'\%')
         plt.savefig(f'nnfit_{dustname}.png')
     
 

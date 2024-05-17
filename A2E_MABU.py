@@ -50,6 +50,9 @@ if (len(sys.argv)<2):
     print("                          ini RT run (nnabs only) and map writing (nnemit only)")
     print("                       ... as well as calling A2E_MABU with absorbed.data")
     print("                           truncated to nnabs only")
+    print("2024-04-02 -- added CR_HEATING flag to ini file")
+    print("                    0 = no extra heating,     1 = default CR heating, ")
+    print("                    2 = 2x default CR heaing, 3 = ad hoc gas-dust heating for dust")
     sys.exit()
 
     
@@ -73,6 +76,10 @@ GPU       = 0
 platforms = []
 AALG      = None   # will have dust and a_alg file name
 
+CR_HEATING  =  0
+CLOUD       =  None
+KDENSITY    =  1.0
+
 nnabs, nnemit, nnmake, nnsolve, nnthin, nngpu = [], [], '', '', 1, 0
 # nnthin  = 1    # not used here, only in A2E_driver
 
@@ -81,7 +88,19 @@ fp  = open(sys.argv[1], 'r')
 for line in fp.readlines():
     s = line.split()
     if (len(s)<2): continue
+    if (s[0]=='CR_HEATING'):
+        # only for values 0, 1, and 2 A2E_MABU uses the parameter the same as ASOC == as CR scaling factor
+        CR_HEATING = int(s[1])
+        print("CR_HEATING %d !!!" % CR_HEATING)
+        #   CR_HEATING=1  =>  single dust, full CR heating to dust heating
+        #   CR_HEATING=2  =>  multiple dusts, full CR heating divided between dust populations
+        #   CR_HEATING=3  =>  multiple dusts, heating from dust-gas coupling with ad hoc gas temperature + temp. difference
+        time.sleep(2)
     if (s[0][0:1]=='#'): continue
+    if (s[0]=='cloud'):
+        CLOUD = s[1]
+    if (s[0]=='density'):
+        KDENSITY = float(s[1])
     if (s[0].find('remit')==0):
         UM_MIN = float(s[1])
         UM_MAX = float(s[2])
@@ -373,7 +392,7 @@ def opencl_init(GPU, platforms, verbose=False):
 
 
 def SolveEquilibriumDust(dust, f_absorbed, f_emitted, UM_MIN=0.0001, UM_MAX=99999.0, MAP_UM=[], \
-GPU=False, platforms=[0,1,2,3,4], AALG=None):
+    GPU=False, platforms=[0,1,2,3,4], AALG=None):
     """
     Calculate equilibrium temperature dust emission based on absorptions.
     Input:
@@ -445,7 +464,7 @@ GPU=False, platforms=[0,1,2,3,4], AALG=None):
     CELLS, NFREQ=  np.fromfile(f_absorbed, np.int32, 2)
     context, commands, mf = opencl_init(GPU, platforms)
     source      =  open(INSTALL_DIR+"/kernel_eqsolver.c").read()
-    ARGS        =  "-D CELLS=%d -D NFREQ=%d -D FACTOR=%.4ef" % (CELLS, NFREQ, FACTOR)
+    ARGS        =  "-D CELLS=%d -D NFREQ=%d -D FACTOR=%.4ef -D CR_HEATING=%d" % (CELLS, NFREQ, FACTOR, CR_HEATING)
     program     =  cl.Program(context, source).build(ARGS)
         
     # Use the E<->T  mapping to calculate ***TEMPERATURES** on the device
@@ -639,7 +658,7 @@ RABS_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=RABS)
 ABU_buf     =  cl.Buffer(context, mf.READ_ONLY,  4*BATCH*NDUST)                  # ABU[CELLS, NDUST]
 
 print("len(RABS)=%d,  nkfreq=%d" % (len(RABS), nkfreq))
-# assert(len(RABS)==nkfreq)  # @@@ ????????
+# assert(len(RABS)==nkfreq)  # ????????
 # len(RABS)=5,  nkfreq=250  ?????????
 
 
@@ -648,7 +667,43 @@ print("len(RABS)=%d,  nkfreq=%d" % (len(RABS), nkfreq))
 fplog.write("\nLoop over dust components\n")
 
 
+    
+
 nnemitted = []
+
+
+
+if (CR_HEATING>2): # need n(H) for dust-gas coupling calculation => READ THE CLOUD
+    fp = open(CLOUD, 'rb')
+    NX, NY, NZ, LEVELS, CELLS = fromfile(fp, int32, 5)
+    LCELLS = zeros(LEVELS, int32)
+    OFF    = zeros(LEVELS, int32)
+    DENS   = zeros(CELLS, float32)
+    cells      = 0
+    kdensity   = KDENSITY    # scaling requested in the ini file
+    for level in range(LEVELS):    
+        if (level>0):
+            OFF[level] = OFF[level-1] + cells   # index to [CELLS] array, first on this level
+        cells = fromfile(fp, int32, 1)[0]       # cells on this level of hierarchy
+        if (cells<0):
+            break                               # the lowest level already read
+        LCELLS[level] = cells    
+        tmp = fromfile(fp, float32, cells)
+        if (kdensity!=1.0):                     # apply density scaling
+            m  = nonzero(tmp>0.0)               # not a link
+            tmp[m] = clip(kdensity*tmp[m], 1.0e-6, 1e20)
+        DENS[(OFF[level]):(OFF[level]+cells)] = tmp
+    fp.close()
+    print("\nDENSITY READ\n\n")
+    
+    
+    
+    
+# ad hoc Tgas and |Tgas-Tdust| (just for order of magnitude estimates)    
+ip_Tg = interp1d([-8.0,   0.0,  1.0,  2.0,  3.0,  4.0,  5.0, 6.0, 7.0, 8.0, 20],
+                 [ 15.0, 15.0, 15.0, 15.0, 14.0, 12.0, 10.0, 7.0, 6.0, 6.0, 6.0])
+ip_DT = interp1d([-8.0,   0.0,  1.0,  2.0,  3.0,  4.0,  5.0, 6.0, 7.0, 8.0, 20.0],
+                 [ 5.0,   5.0,  5.0,  5.0,  5.0,  5.0,  3.0, 1.0, 0.0, 0.0, 0.0])
 
 for IDUST in range(NDUST):
     
@@ -670,19 +725,48 @@ for IDUST in range(NDUST):
     #    absorbed[icell] =  absorbed[icell] * RABS[ifreq,idust] / K
     #    K               =  sum[   ABU[icell, idust] * RABS[ifreq, idust]  ]
     #  process BATCH cells at a time
+    
+    # for CR_HEATING=2,3 we put the CR_HEATING or gas-dust coupling to last element of absorbed
+    #  => kernel splits also that between the dust species
+    #     ... the proportion is the ratio of absorption cross sections at the ***highest*** frequency
+    #     ... which should be quite close to the ratio of physical cross sections = probability of collisions
+    
     tmp_F       =  zeros((BATCH, NFFREQ), float32)  #  allocation to read the file
     tmp         =  zeros((BATCH, nkfreq), float32)  #  whatever kernel gives, NFREQ
     a = 0
     while(a<CELLS):
         b                 =  min(CELLS, a+BATCH)                             # cells [a,b[
         tmp_F[0:(b-a),:]  =  fromfile(fp_absorbed, np.float32, (b-a)*NFFREQ).reshape((b-a), NFFREQ)   # tmp[icell, ifreq]
+        
+        #  CR heating per H atom = 1e-27 erg/s  (i.e. for n(H)==1)  --- density information not needed !!
+        #  coupling is 2.0e-33 * n(H2)**2 * (Tgas-Tdust) * (Tdust/10K)**0.5
+        #    ~         2.0e-33 * 4 * n(H)**2  *  1K   *   (10K/10K)
+        #              8.0e-33 *  n(H)**2
+        # Young et al. (2004)
+        #     coupling  1e-27 n(H2) (zeta/3e-17) (Delta Q/20eV)  erg/cm3/s
+        #  ...  Lambda_gd = 9e-34   * n(H)^2 * sqrt(Tk) *  (1-0.8*exp(-75/Tk)) * (Tk-Td) * (Sigma_dust/6.09e-22)
+        #                 = 9e-34   * n(H)^2 *  3       *     1                *   1K    *   1
+        #                 = 2.7e-33 * n(H)^2
+        #  upper limit  rate =  5.0e-33 * n(H)**2
+        #      Or    Tgas  =  12K for n<=1e4,  10K for n=1e5, 7K for n>=1e6
+        #            Tg-Td =   5K for n<=1e4,   3K for n=1e5, 1K for n>=1e6
+        if   (CR_HEATING==1):       # this is upper limit -- all CR heating balanced by dust emission !!! 
+            tmp_F[0:(b-a), NFREQ-1] = 1.0e-27*1.0e20  ; 
+        elif (CR_HEATING==2):       # this is upper limit -- all CR heating balanced by dust emission !!! 
+            tmp_F[0:(b-a), NFREQ-1] = 1.0e-27*1.0e20  * 2.0 ;  # HIGHER THAN NORMAL !!
+        elif (CR_HEATING==3):       # this from gas-dust coupling with ad hoc Tg, Tg-Td
+            # rate ~ RHO^2,   rate/H ~ RHO !!--v
+            tmp_F[0:(b-a), NFREQ-1] = 9.0e-34 * DENS[a:b] *sqrt(ip_Tg(log10(DENS[a:b]))) * ip_DT(log10(DENS[a:b])) * 1.0e20
+            
         if (nkfreq==NFFREQ):    # "normal", all read frequencies passed to the kernel
             cl.enqueue_copy(queue, ABS_IN_buf, tmp_F)                        # ABS_IN[batch, nkfreq], nkfreq=NFREQ
         else:                  
             # was USELIB... but that has been removed
             print("*** ERROR in A2E_MABU.py: nkfreq!=NFREQ,  %d != %d ???" % (nkfreq, NFREQ))
             sys.exit()
+        # absorbed energy split in proportion to absorption cross sections x abundance
         cl.enqueue_copy(queue, ABU_buf, ABU[a:b, :])                   # ABU[batch, ndust]
+        # for CR_HEATING>0,  last NFREQ-1 element is additional heating, ignored in the normal frequency integration
         Split(queue, [GLOBAL,], [LOCAL,], IDUST, b-a, RABS_buf, ABU_buf, ABS_IN_buf, ABS_OUT_buf)
         cl.enqueue_copy(queue, tmp[0:(b-a), :], ABS_OUT_buf)           # tmp[BATCH, nkfreq]
         tmp[0:(b-a),:].tofile(fp1)                                     # absorption file possibly only reference frequencies
@@ -742,6 +826,15 @@ for IDUST in range(NDUST):
     if (EQDUST[IDUST]):
         # Equilibrium dust, also calculating emission to SHAREDIR/tmp.emitted
         # MAY INCLUDE ONLY FREQUENCIES [UM_MIN, UM_MAX]
+        # Note on CR_HEATING
+        #   CR_HEATING=1  
+        #                 only if there is a single equilibrium dust component,
+        #                 assumes full coupling between gas and dust => upper limit for CR heating!
+        #   CR_HEATING=2 
+        #                 CR heating takes into account density-dependent coupling
+        #                 heating is split between the dust species in proportion of kabs
+        #                 in practice, the CR heating rate is transmitted to kernel in the last frequency channel!
+        
         print("EQUILIBRIUM DUST %s" % DUST[IDUST])
         print("=== SolveEquilibriumDust(%s) === ..... GPU = " % DUST[IDUST], GPU)
         nofreq = SolveEquilibriumDust(DUST[IDUST], ASHAREDIR+'/tmp.absorbed', ESHAREDIR+'/tmp.emitted', 

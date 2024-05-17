@@ -18,29 +18,36 @@ __kernel void EqTemperature(const int       icell,    // first cell of current b
    if (ind>=CELLS) return ;
    // float scale = 6.62607e-27f ;         // cgs absorbed energy (per unit density)
    float scale = 6.62607e-27f ; // this is just Planck constant, no FACTOR here !!
-   float wi, beta=1.0f, Ein ;
+   float wi, beta=1.0f, Ein = 0.0f ;
    __global float *A = &ABS[id*NFREQ] ; // vector of absorbed photons for the current cell
    if (A[0]<-0.5f) {  // If first element is -1.0, this is a link cell and temperature cannot be calculated
       T[ind] = -1.0f ;
    }
+
+#if (CR_HEATING>0)
+   // host has calculated the actual rate for the present dust component, taking into account the
+   // density-dependent gas-dust coupling => value is passed as the element ABS[:, NFREQ-1] which is then
+   // to be excluded from the integration
+   Ein =  A[NFREQ-1] ;   A[NFREQ-1] = 1.0e-32f ;
+   // if (id==0)  printf(" ........................... CR_HEATING    %12.5e ...................\n", Ein) ;
+#endif
+   
    // Trapezoid integration frequency, integrand =  nphotons * h*f  => absorbed energy
-   Ein   =  A[0      ]*FREQ[0      ]* scale * (FREQ[1      ]-FREQ[0      ]) ; // first step
+   Ein  +=  A[0      ]*FREQ[0      ]* scale * (FREQ[1      ]-FREQ[0      ]) ; // first step   
    Ein  +=  A[NFREQ-1]*FREQ[NFREQ-1]* scale * (FREQ[NFREQ-1]-FREQ[NFREQ-2]) ; // last step
    //  the sum over the rest of TMP*DF
    for(int i=1; i<(NFREQ-1); i++) {    // bin  [i, i+1]
       Ein  +=  A[i]*FREQ[i] * scale * (FREQ[i+1]-FREQ[i-1]) ;
    }
-#if 0
-   if (id==0) {
-      printf("Ein %12.4e      Egrid %12.4e %12.4e\n", Ein, Emin, Emin*pow(kE, NE-1)) ;
-   }
-#endif
+
+     
    // Ein = 1e20 * absorbed energy [cgs] per unit density -- since ABS is per unit density
    // T<->E mapping is also for energy emitted per unit density * 1e20
    iE      =  clamp((int)floor(oplgkE * log10((0.5f*Ein/beta)/Emin)), 0, NE-2) ;
    wi      = (Emin*pown(kE,iE+1)-(Ein/beta)) / (Emin*pown(kE, iE+1)-pown(kE, iE)) ;
    T[ind]  =  wi*TTT[iE] + (1.0-wi)*TTT[iE+1] ;
    if (Ein<=0.0f) T[ind] = 2.7f ;  // must have been a link, not real cell
+
    
 #if 0
    // Do not complain about NaN values.... one may be processing parent cells
