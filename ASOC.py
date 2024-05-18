@@ -2120,17 +2120,9 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                         # EMITTED ~ directly EMIT, no scaling with FACTOR --- *= FACTOR IS ALREADY IN THE KERNEL !!!
                         EMITTED[:, ifreq-REMIT_I1] = EMIT  #  FACTOR x PHOTONS / Hz / cm3
                 ####
-            elif (not('MPE' in USER.KEYS)):          # emission with single host thread
-                for icell in range(CELLS):          # loop over the GLOBAL large array
-                    if (DENS[icell]<1.0e-10):
-                        FTMP[:] = 0.0
-                    else:
-                        a, b  =  REMIT_I1, REMIT_I2+1
-                        # @@ EMITTED is again the value scaled with FACTOR (= as stored the file)
-                        FTMP[0:REMIT_NFREQ] =  (FACTOR*4.0*np.pi/(PLANCK*FFREQ[a:b])) * \
-                        AFABS[0][a:b]*Planck(FFREQ[a:b], TNEW[icell])/(USER.GL*PARSEC) #  1e20*photons/H -> FACTOR
-                    EMITTED[icell,:] = FTMP[0:REMIT_NFREQ]  # EMITTED[CELLS, REMIT_NFREQ]
-            else:                                    # emission multithreaded on host
+            elif ('MPE' in USER.KEYS):         # emission multithreaded on host
+                # Note: this is slower than the single-thread Python version below....
+                print("MPE - multithreaded emission calculation in Python")
                 def MP_emit(ifreq, ithread, ncpu, TNEW, MPA):
                     ii   =  int(REMIT_I1 + ifreq + ithread)  # index of the frequency
                     if (ii>REMIT_I2):  # no such channel
@@ -2153,7 +2145,12 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                     for i in range(NCPUS):
                         if ((ifreq+i)<=REMIT_I2):
                             EMITTED[:,ifreq+i] = MPA[i][:]
-                    
+            else:                                  # emission with single host thread
+                for ifreq in range(REMIT_I1, REMIT_I2+1):
+                    freq              =   FFREQ[ifreq]
+                    EMITTED[:, ifreq] =   \
+                    ((FACTOR*4.0*np.pi/(PLANCK*FFREQ[ifreq])) *  AFABS[0][ifreq] * PlanckTest(freq, TNEW[:])) \
+                    / (USER.GL*PARSEC)
             del FTMP            
             Tsolve = time.time()-t0
             if (VERBOSE):
