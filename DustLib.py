@@ -27,7 +27,8 @@ The _CSC functions are othervise the same as the version without the '_CSC', but
 METHOD      = 'CRT'
 # METHOD      = 'native'
 
-DUSTEM_DIR  = '/home/mika/tt/dustem4.0_web'
+# DUSTEM_DIR  = '/home/mika/tt/dustem4.0_web'
+DUSTEM_DIR  = '/home/mika/tt/dustem4.2_web'
 # DUSTEM_DIR  = '/dev/shm/dustem4.0_web'
 
 
@@ -78,7 +79,7 @@ if (0): # LOGLOG INTERPOLATION, OK FOR KABS (==CRT), KSCA LOW???
         return exp(ip(log(x)))
 if (1): # LINEAR INTERPOLATION
     def IP(x, y):
-        return interp1d(x, y, kind='linear')
+        return interp1d(x, y, kind='linear', bounds_error=False, fill_value=(y[0], y[-1]))
     def get_IP(x, ip):
         return ip(x)
 if (0): # ARGUMENT ON LOG SCALE
@@ -156,8 +157,8 @@ class DustO:
         xx, yy = asarray(self.SIZE_A, float64), asarray(self.SIZE_F, float64)
             
         # define also bin limits for the size distribution - assuming logarithmic bins
-        self.SIZE_BO = zeros(self.NSIZE+1, float32)
-        beta  =  self.SIZE_A[1] / self.SIZE_A[0]  # log step
+        self.SIZE_BO      =  zeros(self.NSIZE+1, float32)
+        beta              =  self.SIZE_A[1] / self.SIZE_A[0]  # log step
         self.SIZE_BO[0]   =  self.SIZE_A[0] / sqrt(beta)
         self.SIZE_BO[1:]  =  self.SIZE_A * sqrt(beta)
         
@@ -238,6 +239,25 @@ class DustO:
         return res
 
     
+    def Kabs_ind(self, freq):
+        # Used ***only*** for polarisation files
+        global METHOD
+        if not (self.NSIZE in [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024]):
+            print("Kabs_ind: NSIZE needs to be 2**n for grain alignment.")
+            print("Please use METHOD = 'native' and force_nsize = 2**n to ensure this.")
+        if (METHOD=='CRT'):
+            FUN = self.KabsCRT_ind
+        else:
+            FUN = self.KabsTRUST_ind
+        if (isscalar(freq)):
+            return FUN(freq)
+        else:
+            res = zeros((len(freq),len(self.SIZE_A)), float64)
+            for i in range(len(freq)):
+                res[i,:] = FUN(freq[i])
+        return res
+                                                                                                                                                   
+    
     def Gsca(self, freq):
         if (isscalar(freq)):
             return self.GTRUST(freq)
@@ -297,6 +317,40 @@ class DustO:
         return kabs
 
     
+    
+    def KabsTRUST_ind(self, freq):
+        # Return Q_ABS per individual grain size
+        # find frequency indices surrounding freq
+        i          = argmin(abs(self.QFREQ-freq))  # note -- self.QFREQ is in decreasing order
+        if (self.QFREQ[0]<self.QFREQ[1]):
+            print('KabsTRUST FREQUENCIES IN INCREASING ORDER -- MUST BE DECREASING !!!')
+            sys.exit()
+        if (self.QFREQ[i]<freq): i-=1    #  i -= 1  is step to higher frequency!
+        j          = i+1                 #  j>i,  lower frequency
+        # requested frequency between indices i and j
+        if (i<0): i=0
+        if (j>=self.QNFREQ): j= self.QNFREQ-1
+        if (i==j):
+            wj = 0.5
+        else:
+            wj     = (self.QFREQ[i]-freq)/(self.QFREQ[i]-self.QFREQ[j])
+        # wj     = (log(self.QFREQ[i])-log(freq))/(log(self.QFREQ[i])-log(self.QFREQ[j]))
+        wi     = 1.0-wj
+        #   OPT[isize, ifreq, 0:4] = [ um, Kabs, Ksca, g ]
+        tmp        = ravel(self.OPT[:, i, 1])        # OPT[isize, ifreq, 4] -> frequency i, Qabs
+        ipK        = interp1d(self.QSIZE, tmp)       # Qabs for given size
+        resi       = ipK(self.SIZE_A)
+        tmp        = ravel(self.OPT[:, j, 1])
+        ipK        = interp1d(self.QSIZE, tmp)
+        resj       = ipK(self.SIZE_A)
+        if (0):
+            print('      res  %12.5e  +/-  %12.5e' % (resj, dres))
+        # kabs       = exp(wi*log(resi) + wj*log(resj))
+        kabs       = wi*resi + wj*resj
+        return kabs # qabs, for each grain size, single frequency
+                                                                                                                                                                                                                                                                        
+    
+    
     def KscaTRUST(self, freq):
         # Return KSCA integrated over the size distribution
         # print("*** KscaTRUST")
@@ -336,6 +390,54 @@ class DustO:
 
 
     
+    def Qgamma(self, freq, data):
+        # Return Qgamma per individual grain size -- added here 2021-04-25
+        # find frequency indices surrounding freq
+        # pol input file [nfreq, nsize], 128 sizez, frequency grid independent of DustO grids
+        dfreq = ravel(data[0,1:])  # pol input file: frequencies
+        dsize = ravel(data[1:,0])  # pol input file: grain sizes
+        lend = len(dsize)
+        i          = argmin(abs(dfreq-freq)) # note, dfreq increases with i
+        if (dfreq[i]>freq): i-=1             # ensuring that dfreq[i] is lower
+        j          = i+1                     # here, j is larger                
+        # requested frequency between indices i and j
+        if (i<0): i=0
+        if (j>=len(dfreq)): j= len(dfreq)-1
+        if (i==j):
+            wj = 0.5
+        else:
+            wj     = (freq-dfreq[i])/(dfreq[j]-dfreq[i])
+            # wj     = (log(self.QFREQ[i])-log(freq))/(log(self.QFREQ[i])-log(self.QFREQ[j]))
+        wi     = 1.0-wj
+        #   data[1:isize, 1:ifreq] = [ qgamma]
+        tmp    = ravel(data[1:, i+1])        # data[isize,ifreq] -> frequency i, Qgamma
+        ipK    = interp1d(log10(data[1:,0]), tmp, bounds_error=False, fill_value=-99.0)       # Qgamma for given size
+        resi   = ipK(log10(self.SIZE_A))
+        mask   = nonzero(resi == -99.0)
+        #print resi
+        #print mask
+        for lll in mask[0]:
+            if (self.SIZE_A[lll] <= dsize[0]):  resi[lll] = tmp[0     ]*self.SIZE_A[lll]/dsize[0     ]
+            else:                               resi[lll] = tmp[lend-1]*self.SIZE_A[lll]/dsize[lend-1]
+            #print lll
+            #if (self.SIZE_A[lll] <= dsize[0]): resi[lll] = (tmp[1]-tmp[0])/(log10(dsize[1])-log10(dsize[0]))*(log10(self.SIZE_A[lll])-log10(dsize[0]))+tmp[0]
+            #else: resi[lll] = (tmp[lend-1]-tmp[lend-2])/(log10(dsize[lend-1])-log10(dsize[lend-2]))*(log10(self.SIZE_A[lll])-log10(dsize[lend-1]))+tmp[lend-1]
+        tmp    = ravel(data[1:, j+1])
+        ipK    = interp1d(log10(data[1:,0]), tmp, bounds_error=False, fill_value=-99.0)       # Qgamma for given size
+        resj   = ipK(log10(self.SIZE_A))
+        mask   = nonzero(resj == -99.0)
+        for lll in mask[0]:
+            if (self.SIZE_A[lll] <= dsize[0]): resj[lll] = tmp[0]*self.SIZE_A[lll]/dsize[0]
+            else: resj[lll] = tmp[lend-1]*self.SIZE_A[lll]/dsize[lend-1]
+            #print lll
+            #if (self.SIZE_A[lll] <= dsize[0]): resj[lll] = (tmp[1]-tmp[0])/(log10(dsize[1])-log10(dsize[0]))*(log10(self.SIZE_A[lll])-log10(dsize[0]))+tmp[0]
+            #else: resj[lll] = (tmp[lend-1]-tmp[lend-2])/(log10(dsize[lend-1])-log10(dsize[lend-2]))*(log10(self.SIZE_A[lll])-log10(dsize[lend-1]))+tmp[lend-1]
+        if (0):
+            print('      res  %12.5e  +/-  %12.5e' % (resj, dres))
+        # kabs       = exp(wi*log(resi) + wj*log(resj))
+        qgam       = wi*resi + wj*resj
+        return qgam # qgam per sizes at a frequency
+
     
 
     def KabsTRUST_X(self, freq):
@@ -891,7 +993,6 @@ class DustemDustO(DustO):
         file_phase   = ""
         file_sizes   = ""
         file_lambda  = DUSTEM_DIR+'/oprop/LAMBDA.DAT'
-        print("file_lambda = ", file_lambda)
         for line in open(filename).readlines():
             s = line.split()
             if (len(s)<1): continue
@@ -921,9 +1022,18 @@ class DustemDustO(DustO):
             print("DustemDust - missing prefix == name of the dust component")
             sys.exit()
 
+
+        print("================================================================================")
+        print("DustemDustO(%s)" % filename)
+        print("   optical   --   %s" % file_optical)
+        print("   phase     --   %s" % file_phase)
+        print("   lambda    --   %s" % file_lambda)
+        print("   sizes     --   %s" % file_sizes)
+        print("   DUSTNAME  --   %s" % self.DUSTNAME)
+        print("================================================================================")
+            
             
         # Read the sizes
-        print("Reading: %s" % file_sizes)
         lines = open(file_sizes).readlines()
         dusts_found  = 0
         # arrays to store parameters of the size distribution of the current species
@@ -942,7 +1052,7 @@ class DustemDustO(DustO):
             typ        =       s[2]    # mix-logn, logn, plaw-ed-cv etc.
             rmass      = float(s[3])   # Mdust/MH
             rho        = float(s[4])   # g/cm3
-            self.RHO   = rho
+            self.RHO   = rho*ones(nsize, float32) # 2024-05-18 rho is now a vector
             self.AMIN  = float(s[5])   #  [cm]
             self.AMAX  = float(s[6])   #  [cm]
             if (METHOD=='CRT'):
@@ -1022,31 +1132,51 @@ class DustemDustO(DustO):
                 #
 
                 
+        
+                # Read rho(a) from the Q file, if that is given 
+                #     nsize
+                #     {size [um]}
+                #     rho [g/cm3]  <--- iff this line exists before the "#### Qabs ####" line
+                iprho = None
+                lines = open(DUSTEM_DIR+'/oprop/Q_%s.DAT' % self.DUSTNAME).readlines()
+                for iline in range(10): 
+                    if (lines[iline][0:1]!='#'):
+                        break
+                # iline+1 = sizes,  iline+2 *possibly* rho(a)
+                if (lines[iline+2][0:1]!='#'): # ok, rho values are given
+                    d     = loadtxt(DUSTEM_DIR+'/oprop/Q_%s.DAT' % self.DUSTNAME, skiprows=iline+1, max_rows=2)
+                    iprho = interp1d(d[0,:], d[1,:], bounds_error=False, fill_value=(d[1,0], d[1,-1]))
+                    rho   = iprho(self.SIZE_A)
+                    self.RHO = rho
+                
                 # we need normalisation with respect to H
                 #   volume integral * rho  =  Hydrogen mass * rmass
                 # integal of mass_integrand over [amin, amax] == 1.00794*AMU*rmass
                 #        => self.SIZE_F  becomes  1/H/cm
-                mass_integrand = asarray(self.SIZE_F * (4.0*pi/3.0)*(self.SIZE_A**3.0) * rho, float64)
+                mass_integrand =  asarray(self.SIZE_F * (4.0*pi/3.0)*(self.SIZE_A**3.0) * rho, float64)
                 ip             =  interp1d(self.SIZE_A, mass_integrand)
                 res, dres      =  quad(ip, self.AMIN, self.AMAX, epsrel=1.0e-10, epsabs=EPSABS2)  # total dust mass...
                 ##
                 self.SIZE_F   *=  mH*rmass / res        # ... should equal AMU*rmass
-                                
-                    
+
+                                    
                 # CRT-type summation instead of integrals over size distribution
                 # must use the logarithmic size grid specified in the DustEM file
+                # also THEMIS2 was on log size scale.... but there rho = rho(a)
                 self.CRT_SFRAC   =  self.SIZE_F  * self.SIZE_A
-                vol              =  (4.0*pi/3.0) * sum( self.CRT_SFRAC * self.SIZE_A**3.0 )
-                print('rmass %10.3e, rho %10.3e, vol %10.3e' % (rmass, rho, vol))
+                # vol              =  (4.0*pi/3.0) * sum( self.CRT_SFRAC * self.SIZE_A**3.0 )
+                mass              =  (4.0*pi/3.0) * sum( self.CRT_SFRAC * self.SIZE_A**3.0 * rho )
+                # print('rmass %10.3e, rho %10.3e, vol %10.3e' % (rmass, rho, vol))
                 # grain_density  =  mH*ratio / (vol*rho)
-                self.CRT_SFRAC  *=  mH*rmass / (rho*vol)  # grain density included in self.SFRAC
+                # self.CRT_SFRAC  *=  mH*rmass / (rho*vol)  # grain density included in self.SFRAC
+                self.CRT_SFRAC  *=  mH*rmass / mass  # grain density included in self.SFRAC
                 # now sum(SFRAC*pi*a**2*Q) should be tau/H !!
                 if (1):
-                    vol = sum(self.CRT_SFRAC * (4.0*pi/3.0) * self.SIZE_A**3.0)
-                    print('Dust mass %10.3e, H mass %10.3e' % (vol*rho, mH))
+                    mass = sum(self.CRT_SFRAC * (4.0*pi/3.0) * self.SIZE_A**3.0  * rho)
+                    print('Dust mass %10.3e, H mass %10.3e' % (mass, mH))
             
-                    
-                    
+
+                                    
                 # apply mix, if given --- AFTER the initial normalisation
                 mix = None
                 if (typ.find('mix')>=0):
@@ -1055,23 +1185,26 @@ class DustemDustO(DustO):
                     # this is specified for points logspace(amin, amax, nsize)
                     mix = ravel(loadtxt(DUSTEM_DIR+'/data/MIX_%s.DAT' % self.DUSTNAME))
                     print('MIX ', mix)
-                    if (nsize==self.NSIZE): # using original dustem grid !!
+                    print("len(mix)=%d, nsize=%d, self.NSIZE=%d" % (len(mix), nsize, self.NSIZE))
+                    if (len(mix)==self.NSIZE): # using original dustem grid
                         if (len(mix)!=len(self.SIZE_F)):
                             print('??????????')
                             sys.exit()
                         ### self.SIZE_F *= mix
                     else:                   # need to interpolate !!
                         print('*** Interpolating MIX !!! nsize %d, NSIZE %d' % (nsize, self.NSIZE))
-                        x = logspace(log10(self.AMIN), log10(self.AMAX), nsize)  # the DustEM size grid !!
+                        x = logspace(log10(self.AMIN), log10(self.AMAX), len(mix))
                         if (len(x)!=len(mix)):
-                            print('DustLib, read MIX with %d size points != %d' % (self.NSIZElen(mix), mix))
+                            print('DustLib, read MIX with %d size points != %d' % (len(mix), self.NSIZE))
                         # apply these factors to our (probably more dense) size grid
                         if (0):
                             ip = interp1d(x, mix, fill_value=1.0, bounds_error=False)
                             mix = ip(self.SIZE_A)
                         else:
+                            # e.g.  len(x) != original len(mix)=10
                             ip  = interp1d(log(x), mix, fill_value=1.0, bounds_error=False)
                             mix = ip(log(self.SIZE_A))
+                            print("*** mix interpolated to %d points ***" % (len(mix)))
                         print('AVERAGE SCALING %.2f' % mean(ip(self.SIZE_A)))
                         print('MIX defined %10.3e - %10.3e' % (self.AMIN, self.AMAX))
                         print('SIZE_A      %10.3e - %10.3e' % (self.SIZE_A[0], self.SIZE_A[-1]))
@@ -1110,15 +1243,17 @@ class DustemDustO(DustO):
             if (len(lines[iline])<2): continue
             break
         # print('LINE ', iline)  # 4
-        self.QNSIZE  = int(lines[iline].split()[0]) # 50 sizes?
+        self.QNSIZE  = int(lines[iline].split()[0]) # nsize   --- on line iline
         self.QSIZE   = zeros(self.QNSIZE, float64)
-        s            = lines[iline+1].split()   # line 600 characters
+        s            = lines[iline+1].split()       # sizes   --- on line iline+1
         if (len(s)!=self.QNSIZE):
             print('[1] ??????????????????')
         for i in range(self.QNSIZE):
             self.QSIZE[i] = float(s[i]) # this size grid not necessarily logarithmic?
         self.QSIZE *= 1.0e-4   # file has [um], we need [cm]
         # read Qabs and Qsca data (increasing order of wavelength)
+        # skiprows iline+3 is ok, whether there is rho(a) line or not (on line iline+2), 
+        # because there is still one comment line (on line iline+2 or iline+3)
         x      =  loadtxt(DUSTEM_DIR+'/oprop/Q_%s.DAT' % self.DUSTNAME, skiprows=iline+3) # 7
         qabs   =  x[0:self.QNFREQ,:]   # rows=wavelenghts, columns = sizes
         qsca   =  x[self.QNFREQ:, :]
@@ -1756,7 +1891,7 @@ def write_simple_dust_output_CRT(DUST, FREQ, BINS=2500, filename='tmp.dust', dsc
 
 
     
-def write_DUSTEM_files(dustem_file=''):
+def write_DUSTEM_files(dustem_file='', DIR=''):
     """
     Write dust files needed by the CRT + DustEM runs.
     If necessary, rename dusts so that each size distribution is associated to a 
@@ -1764,6 +1899,7 @@ def write_DUSTEM_files(dustem_file=''):
     in the DustEM directories.
     Input:
         Name of the DustEM GRAIN.DAT type file
+        DIR = if not empty, read GRAIN.DAT from that directory
     Output:
         writes crt_dusts.txt = lines to be added to CRT ini, lines [ dust < dustname> ]
         makes symbolic links in DustEM directories for the renamed dust components
@@ -1776,7 +1912,9 @@ def write_DUSTEM_files(dustem_file=''):
     NEWNAME = []  # the same, if dust on several GRAIN.DAT lines, rename <dust>_copy1... etc.
     fp  = open('crt_dusts.txt', 'w')                         # list here dust names used by CRT
     fpD = open('%s/data/GRAIN_TMP.DAT' % (DUSTEM_DIR), 'w')  # write for DustEM file with size distributions
-    for line in open(DUSTEM_DIR+'/data/'+dustem_file):       # extract dust names from DustEM file
+    if (DIR==''): FROMDIR = DUSTEM_DIR+'/data/'
+    else:         FROMDIR = DIR
+    for line in open(FROMDIR + dustem_file):       # extract dust names from DustEM file
         s = line.split()
         if (len(s)<1): continue
         if (line[0:1]=='#'): 
@@ -2375,3 +2513,104 @@ def write_eqdust_dsc(eqdustfile, freq, BINS=2500, dscfile='eqdust.dsc'):
         asarray(res, float32).tofile(fs)
     fs.close()
 
+
+
+    
+def write_simple_dust_pol(DUST, filename='tmp.dust', filename2='a128_freq40_Qgamma_new.txt', 
+    sizefile='tmp.size', qabsfile='tmp.qabs', rpolfile='tmp.rpol', qgamfile='tmp.qgam'):
+    """
+    Added here 2021-04-25
+    Write dust description for grain alignment, based on DustEM. Note, this uses the
+    same grain size discretisation as DustemDust0, so remember to use METHOD = 'native' 
+    and force_nsize = 2**n, when calling up the dust in the main program.
+    Input:
+        DUST      = array of DustO objects (this should be JUST the silicates of the mix)
+        filename  = name of the written dust file
+        filename2 = name of the file from which Qgamma values are read, before interpolation.
+        sizefile  = name of the written dust size file [NSIZE]
+        qabsfile  = name of the file written for qabs per freq per size.
+        rpolfile  = name of the file written for the polarization reduction factor per size, 
+                    assuming only silicates are aligned.
+    Output:
+        tmp.qabs  = qabs per freq per size, NOT integrated over the size distribution, 
+                    but per individual grain sizes!
+        tmp.rpol  = polarization reduction factor
+    """
+    print("*** write_simple_dust_pol ***")
+    NDUST     = len(DUST)
+    if NDUST!=1:
+        print("Danger, trying to do more than just one dust type! Check to make sure that AMIN & AMAX are the same (i.e., same size grid), or the code will give wrong values!")
+        for i in range(NDUST-1):
+            print(DUST[i].AMIN, DUST[i].AMAX)
+            if ((DUST[i].AMIN != DUST[i+1].AMIN) or (DUST[i].AMAX != DUST[i+1].MAX)):
+                print("MISMATCH IN AMIN, AMAX! EXITING!")
+                sys.exit()
+    GRAIN_DENSITY = 1.0e-7  # ad hoc
+    GRAIN_SIZE    = 1.0e-4  # ad hoc
+    K     =  GRAIN_DENSITY * pi*GRAIN_SIZE**2.0
+    # read in the dust properties of all the dust
+    dustdata = loadtxt(filename,skiprows=4)
+    #print dustdata.shape
+    FREQ  = dustdata[:,0]
+    NFREQ = len(FREQ)
+    ABS   = dustdata[:,2]*K
+    #SCA = dustdata[:,3]*K
+    dustsize = DUST[0].SIZE_A
+    savetxt(sizefile,dustsize)
+    Qabs = zeros((NFREQ+1,len(dustsize)+1),float32)
+    Rpol = zeros((len(dustsize)+1,NFREQ+1),float32)
+    QGdata = loadtxt(filename2)  #  input file [128, 40] 128 sizes and 40 frequencies
+    print(QGdata.shape)
+    Qgam = zeros((len(dustsize)+1,NFREQ+1),float32)
+    # Qgamma interpolates to the requested frequency... pol input file can have independent
+    #   frequency grid, the size grid comes from the pol input file,
+    #   such as a128_freq40_Qgamma_new.txt, which has nfreq=40, nsize=128
+    for i in range(NFREQ):   # this might be 50 frequencies...
+        Qgam[1:,i+1] = DUST[0].Qgamma(FREQ[i], QGdata)  # this frequency, 
+    Qgam[1:,0] = dustsize
+    Qgam[0,1:] = FREQ   # Qcam has been now interpolated to FREQ grid
+    # ????? WHAT IF RHO = RHO(a) ?????
+    for i in range(NDUST):
+        Qgam[0,0] += mean(DUST[i].RHO)/NDUST # simple arithmetic mean rho (ok if there is only one !!)
+    Qabs[0,0] = Qgam[0,0]    
+    savetxt(qgamfile,Qgam)
+    #####
+    # 2021-04-25 - not using Kabs_ind but SKabs
+    #   SKabs = OPT*pi*a^2  ... no S_FRAC, no GRAIN_DENSITY
+    #   Kabs_CRT   = sum(CRT_SFRAC*OPT*pi*a^2)
+    #   KabsTRUST  = ProductIntegrand( ipFRAC, ipK==OPT ) over sizes [axmin, amax]
+    # The following is directly from DustO, Qabs for individual sizes and
+    # fractions of cross section for grains a>amin, different amin, relative to the
+    # whole cross section as read from filename (e.g. tmp.dust)
+    amin_orig = DUST[i].AMIN
+    for i in range(NDUST):
+        if not (DUST[i].NSIZE in [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024]):
+            print("*** POLARISATION ***   Kabs_ind: NSIZE needs to be 2**n for grain alignment.")
+            print("Please use METHOD = 'native' and force_nsize = 2**n to ensure this.")
+            sys.exit(0)
+        # ok, still using Kabs_ind(FREQ)  => vector with Kabs for each size
+        Qabs[1:,1:]  +=  DUST[i].Kabs_ind(FREQ)/NDUST
+        for j in range(len(dustsize)):
+            # total kabs for a>amin ... Kabs() does inclue ipFRAC
+            DUST[i].AMIN  =  dustsize[j]             # amin increasing line by line
+            # depending on file "filename", this can be the ratio kabs(aligned)/kabs_tot
+            # where kabs_tot is either sum over Si sizes only or sum over all sizes and species
+            Rpol[j+1,1:] +=  DUST[i].Kabs(FREQ)/ABS  # fraction of total ABS per FREQ for a>amin
+            print(j, dustsize[j], Rpol[j+1,1])
+    DUST[i].AMIN = amin_orig        
+    #####
+    Qabs[1:(len(FREQ)+1),0]     = FREQ
+    Qabs[0,1:(len(dustsize)+1)] = dustsize
+    Rpol[1:(len(dustsize)+1),0] = dustsize
+    Rpol[0,1:(len(FREQ)+1)]     = FREQ
+    savetxt(qabsfile, Qabs)
+    savetxt(rpolfile, Rpol)
+    if (0):
+        wave = C_LIGHT/FREQ
+        loglog(wave,Qgam[2,1:],'b-')
+        loglog(wave,Qgam[60,1:],'g-')
+        loglog(wave,Qgam[120,1:],'r-') 
+        show()
+        #sys.exit()
+   
+    
