@@ -10,6 +10,7 @@ import time
 import numpy as np
 import matplotlib.pylab as plt
 
+LOG = False
 
 def um2f(um):
     return 2.997924580e14/um
@@ -20,7 +21,10 @@ def f2um(freq):
 
 NET = [ 15, 15 ]
 NET = [ 13, 17, 13 ]
+# NET = [ 15, 19, 15 ]
+# NET = [ 17, 21, 17 ]
 
+MAXITER = 20000
 
 def NN_fit(prefix, dustname, cells, nnabs, nnemit, file_absorbed, file_emitted, nngpu=1):
     """
@@ -67,13 +71,23 @@ def NN_fit(prefix, dustname, cells, nnabs, nnemit, file_absorbed, file_emitted, 
 
     A = np.fromfile(file_absorbed, np.float32)[2:].reshape(cells, Na)
     E = np.fromfile(file_emitted,  np.float32)[2:].reshape(cells, Ne)
+    
+    if (LOG):
+        A = np.log10(np.clip(A, 1.0e-29, 1.0e32))
+        E = np.log10(np.clip(E, 1.0e-29, 1.0e32))
+    else:
+        A = np.clip(A, 1.0e-29, 1.0e32)
+        E = np.clip(E, 1.0e-29, 1.0e32)
+    print("--------------------------------------------------------------------------------")
+    print("DUST: %s,    CELLS: %d,    NABS: %d,     EMIT: %d" % (dustname, cells, Na, Ne))
+    print("--------------------------------------------------------------------------------")
         
     # NORMALISE
     Ma = np.clip(np.mean(A, axis=0), 1.0e-20, 1.0e10)
     Me = np.clip(np.mean(E, axis=0), 1.0e-20, 1.0e10)
     sys.stdout.flush()
-    print('Ma = ', Ma)
-    print('Me = ', Me)
+    # print('Ma = ', Ma)
+    # print('Me = ', Me)
     sys.stdout.flush()
     for i in range(Na):  A[:,i] /= Ma[i]
     for i in range(Ne):  E[:,i] /= Me[i]
@@ -101,7 +115,7 @@ def NN_fit(prefix, dustname, cells, nnabs, nnemit, file_absorbed, file_emitted, 
 
     print('Training...')
     sys.stdout.flush()
-    train_steps   =  20000 // 2
+    train_steps   =  MAXITER
     t1 = time.time()    
     os.system('chroma.py 255 0 0')
     for epoch in range(train_steps):
@@ -133,32 +147,37 @@ def NN_fit(prefix, dustname, cells, nnabs, nnemit, file_absorbed, file_emitted, 
         plt.close(1)
         plt.figure(1, figsize=(10,7))
         plt.subplots_adjust(left=0.08, right=0.94, bottom=0.08, top=0.96, wspace=0.59, hspace=0.35)
-        for i in range(Ne):
+        for i in range(Ne): # over predicted wavelengths
             if (i>=9): break
             ax = plt.subplot(3,3,1+i)
-            plt.plot(E[0::31,i], Epred[0::31,i], 'k.', alpha=0.1)
+            # plot every 31st point, training value and prediction
+            plt.plot(E[0::11,i], Epred[0::11,i], 'k.', alpha=0.1)
             plt.text(0.1, 0.88, r'$\rm %.1f \/ \mu m$' % f2um(nnemit[i]), transform=ax.transAxes)
+            xx = plt.xlim()
+            plt.plot(xx, xx, 'r-', lw=1)            
             # estimate stdev relative to the solution
-            r  =  (E[:,i]-Epred[:,i])/(E[:,i]+1.0e-10)
-            no =  100   # calculate sigma for no intervals over E
+            r  =  (E[:,i]-Epred[:,i])/(E[:,i]+1.0e-10)   # relative error
+            no =  100                                    # calculate sigma for no intervals over E
             p  =  np.percentile(E[:,i], np.linspace(0.0, 100.0, no+1))   # samples along the x-axis = E
             x, y = np.zeros(no, np.float32), np.zeros(no, np.float32)
             for k in range(no):   # corresponding y-axis values = <r>
                 x[k]  =  0.5*(p[k]+p[k+1])  #  ~ E
                 m     =  np.nonzero((E[:,i]>p[k])&(E[:,i]<p[k+1]))
-                y[k]  =  np.sqrt(sum(r[m]**2)/len(m[0]))
+                if (len(m[0])<1): y[k]  =  0.0
+                else:             y[k]  =  np.sqrt(sum(r[m]**2)/len(m[0]))
             plt.xlabel(r'$I_{\nu} \rm (train, \/ %.1f \/ \mu m)$' % f2um(nnemit[i]))
             plt.ylabel(r'$I_{\nu} \rm (NN   , \/ %.1f \/ \mu m)$' % f2um(nnemit[i]))
             #--------------------------------------------------------------------------------
             plt.cax = plt.twinx()
-            plt.plot(x, 100.0*y, 'b-')
+            plt.plot(x, 100.0*y, 'b-', label='rms')
             xx = plt.xlim()
-            plt.plot(xx, [10.0, 10.0], 'c--')
+            plt.plot(xx, [10.0, 10.0], 'c--', label='10 pc')
             # plot 1%, 5%, 10%
-            plt.plot([x[1], x[5], x[10]], 100.0*np.asarray([y[1],y[5],y[10]]), 'r+')
+            plt.plot([x[1], x[5], x[10]], 100.0*np.asarray([y[1],y[5],y[10]]), 'r+', label='1,5,10-q ')
             plt.xlim(xx)
             plt.ylim(-0.9, 15.0)
             plt.ylabel(r'$\sigma \/ \/ \rm [%s]$' % r'\%')
+            plt.legend()
         plt.savefig(f'nnfit_{dustname}.png')
     
 
@@ -174,6 +193,15 @@ def NN_solve(prefix, dustname, nnabs, nnemit, file_absorbed, file_emitted='', nn
           FF (integration weights used in ASOC.py), because the NN
           mapping must be independent of the frequency grid
           (different when NN is fitted and when it is used for predictions)
+          ... was that finally not true?
+    Input:
+        prefix   =  prefix of the stored NN file of weights
+        dustname =  name of the current dust component
+        nnabs    =  vector of absorbed frequencies
+        nnemit   =  vector of emitted frequencies
+        file_absorbed = absorptions scaled to correspond to absorptions of the
+                        current dust component, divided by abundance
+        file_emitted  = file for the predicted emission, nnemit frequencies
     """
     Na = len(nnabs)
     Ne = len(nnemit)
@@ -209,6 +237,10 @@ def NN_solve(prefix, dustname, nnabs, nnemit, file_absorbed, file_emitted='', nn
 
 
     A       = np.fromfile(file_absorbed, np.float32)[2:]
+    if (LOG):
+        A = np.log10(np.clip(A, 1.0e-29, 1.0e32))
+    else:
+        A = np.clip(A, 1.0e-29, 1.0e32)        
     cells   = len(A)//Na
     A.shape = (cells, Na)
 
@@ -256,7 +288,10 @@ def NN_solve(prefix, dustname, nnabs, nnemit, file_absorbed, file_emitted='', nn
 
     t0    = time.time()
     # no extrapolation to negative intensities !
-    Epred = np.clip(model(xObs).cpu().detach().numpy(), 0.0, 1e32) 
+    Epred = model(xObs).cpu().detach().numpy()
+    if (LOG):
+        Epred = 10.0**Epred
+    Epred = np.clip(Epred, 0.0, 1.0e32)
     Epred.shape = (cells, Ne)
     t0 = time.time()-t0
     print("Predictions in %.3f seconds" % t0)

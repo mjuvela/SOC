@@ -244,7 +244,8 @@ if (len(nnsolve)>0):
         if (s[0].find('optical')>=0):
             dust = s[1]
             nndust = write_nndust(dust, nnabs, 'nnabs')  # only nnabs frequencies
-            fp.write('optical %s\n' % nndust)
+            abu  = [ "", s[2] ][len(s)>2]                # could have ***abundance***
+            fp.write('optical %s  %s\n' % (nndust, abu))
         elif (s[0].find('backgro')>=0):
             # s[1] if the intensity file => cut from nfreq to nnabs
             nnbg  = np.fromfile(s[1], np.float32)[IND_nnabs]

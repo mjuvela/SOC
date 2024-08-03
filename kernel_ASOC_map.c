@@ -295,7 +295,7 @@ void Index(float3 *pos, int *level, int *ind,
    // Assume that one has already checked that the neighbour is not just another cell in the
    //   current octet
    int sid ;
-# if (NX>100)
+# if (NX>100)    // was 100 before 2024-06-05
    double3  POS ;
 # else
    float3   POS ;

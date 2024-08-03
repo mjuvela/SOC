@@ -21,8 +21,8 @@
 #define F2I(x)    (*(__global int*)&x)   //  __global BUFFER -> OTI
 #define I2F(x)    (*(float *)&x)         //           OTI    -> __global BUFFER
 
-#if 0
-# define DIMLIN 300
+#if 1
+# define DIMLIM 300
 #else
 # define DIMLIM 100 // if base grid NX is larger, use double precision for position
 #endif

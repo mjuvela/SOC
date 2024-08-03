@@ -301,7 +301,7 @@ if (VERBOSE): print("*** MIRROR *** ", MIRROR)
 ARGS = "-D NX=%d -D NY=%d -D NZ=%d -D BINS=%d -D WITH_ALI=%d -D PS_METHOD=%d -D FACTOR=%.4ef \
 -D CELLS=%d -D AREA=%.0f -D NO_PS=%d -D WITH_ABU=%d -D ROI_MAP=%d -D MAX_SPLIT=%d -D SELEM=%d \
 -D ROI_STEP=%d -D ROI_NSIDE=%d -D WITH_ROI_LOAD=%d -D WITH_ROI_SAVE=%d \
--D AXY=%.5ff -D AXZ=%.5ff -D AYZ=%.5ff -D LEVELS=%d -D LENGTH=%.5ef -I%s -D DO_SPLIT=%d \
+-D AXY=%.5ff -D AXZ=%.5ff -D AYZ=%.5ff -D LEVELS=%d -D LENGTH=%.5ef -I %s -D DO_SPLIT=%d \
 -D POLSTAT=%d -D SW_A=%.3ef -D SW_B=%.3ef -D STEP_WEIGHT=%d -D DIR_WEIGHT=%d -D DW_A=%.3ef \
 -D LEVEL_THRESHOLD=%d -D POLRED=%d -D p00=%.4ff -D MINLOS=%.3ef -D MAXLOS=%.3ef \
 -D FFS=%d -D NODIR=%d -D USE_EMWEIGHT=%d -D SAVE_INTENSITY=%d -D NOABSORBED=%d -D INTERPOLATE=%d \
@@ -342,6 +342,8 @@ if (0):
 VARGS += " -cl-mad-enable -cl-no-signed-zeros -cl-finite-math-only"  # this seems ok on NVidia !!
 
 ARGS   += VARGS
+
+print(ARGS)
 
 # Create contexts, command queu, and program = kernels for the simulation step
 # source  =  os.getenv("HOME")+"/starformation/SOC/kernel_ASOC.c"        

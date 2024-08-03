@@ -1066,8 +1066,11 @@ def read_background_intensity(USER):
         try:
             IBG  = fromfile(USER.file_background, float32, USER.NFREQ)
         except:
-            print('Not reading file USER.file_BG=[%s]' % USER.file_background)
-            IBG  = zeros(USER.NFREQ, float32)  # probably because we will use HPBG instead
+            print('Failed to read the background intensities from USER.file_BG=[%s]' % USER.file_background)
+            IBG  = zeros(USER.NFREQ, float32)     # probably because we will use HPBG instead
+            if ((USER.BGPAC>0)&(USER.file_hpbg=='')):  # ... but if HPBG is not used, missing bgfile is an error
+                print("Error: BGPAC>0 =>  must have either isotropic or healpix background defined")
+                sys.exit()   
         if (len(IBG)!=USER.NFREQ):
             EXIT('Optical data for %d, background intensity for %d frequencies ??' % (USER.NFREQ, len(IBG)))
         IBG *= USER.scale_background

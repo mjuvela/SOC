@@ -17,5 +17,7 @@ void __kernel  split_absorbed(const    int     IDUST,
       for(int idust=0; idust<NDUST; idust++)  den += ABU[icell*NDUST+idust] * RABS[ifreq*NDUST+idust] ;
       OUT[icell*NFREQ+ifreq]  =  IN[icell*NFREQ+ifreq] * RABS[ifreq*NDUST+IDUST] / den ;      
       // if (icell%999==10) printf(" %12.4e = %12.4e * %12.4e / % 12.4e\n", OUT[icell*NFREQ+ifreq], IN[icell*NFREQ+ifreq], RABS[ifreq*NDUST+IDUST], den) ;
+      //  single dust, ABU=1     =>   scaling = 1.0
+      //  single dust, ABU=0.5   =>   scaling = 2.0  ... to get normal energy per grain (less energy but per fewer grains)
    }
 }
