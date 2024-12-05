@@ -571,7 +571,7 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
 	    tauA      =  ds*DENS[oind]*GOPT(2*oind) ;    // OPT = total cross section, sum over dust species
             dtau      =  ds*DENS[oind]*GOPT(2*oind+1) ;  // optical depth for scattering !!!
 #else
-	    tauA      =  ds*DENS[oind]*(*ABS) ;       // ABS is basically a scalar
+	    tauA      =  ds*DENS[oind]*(*ABS) ;          // ABS is basically a scalar
             dtau      =  ds*DENS[oind]*(*SCA) ;
 #endif
             if (free_path<(tau+dtau)) {  // tau = optical depth since last scattering

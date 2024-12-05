@@ -19,43 +19,50 @@ def f2um(freq):
     return 2.997924580e14/freq
 
 
-NET = [ 15, 15 ]
-NET = [ 13, 17, 13 ]
+# NET = [ 15, 15 ]
+# NET = [ 13, 17, 13 ]
 # NET = [ 15, 19, 15 ]
 # NET = [ 17, 21, 17 ]
 
-MAXITER = 20000
+# MAXITER = 20000
+# MAXITER = 12000
+# MAXITER = 3000
 
-def NN_fit(prefix, dustname, cells, nnabs, nnemit, file_absorbed, file_emitted, nngpu=1):
+
+def NN_fit(prefix, dustname, cells, nnabs, nnemit, file_absorbed, file_emitted, nngpu=1, nnmaxiter=3000, nnnet=[13, 17, 13]):
     """
     Given absorptions [cells, nnabs] and corresponding emissions [cells, nnemit],
     make a neural network fit and save weights to <prefix>_<dustnam>.nn
-    Note: in A2E_MABU.py, file_absorbed has been divided by FF, to make NN
-          mapping independent of the frequency grid (different then NN is fitted
+    Note: 
+        - in A2E_MABU.py, file_absorbed has been divided by FF, to make NN
+          mapping independent of the frequency grid (different when NN is fitted
           and when it is used to predict emission)
+        - all data on absorptions and emissions is read to Python arrays,
+          GPU memory limitations should be overcome by choosing a small enough
+          training set
     """
     Na = len(nnabs)
     Ne = len(nnemit)
     class MyNet(nn.Module):
         def __init__(self):
             super().__init__()
-            if (len(NET)==2):
+            if (len(nnnet)==2):
                 self.layers = nn.Sequential(
-                nn.Linear(Na, NET[0]),
+                nn.Linear(Na, nnnet[0]),
                 nn.LeakyReLU(),
-                nn.Linear(NET[0], NET[1]),
+                nn.Linear(nnnet[0], nnnet[1]),
                 nn.LeakyReLU(),
-                nn.Linear(NET[1], Ne)
+                nn.Linear(nnnet[1], Ne)
                 )
-            elif (len(NET)==3):
+            elif (len(nnnet)==3):
                 self.layers = nn.Sequential(
-                nn.Linear(Na, NET[0]),
+                nn.Linear(Na, nnnet[0]),
                 nn.LeakyReLU(),
-                nn.Linear(NET[0], NET[1]),
+                nn.Linear(nnnet[0], nnnet[1]),
                 nn.LeakyReLU(),
-                nn.Linear(NET[1], NET[2]),
+                nn.Linear(nnnet[1], nnnet[2]),
                 nn.LeakyReLU(),
-                nn.Linear(NET[2], Ne)
+                nn.Linear(nnnet[2], Ne)
                 )                
         def forward(self, x):
             return self.layers(x)
@@ -82,19 +89,18 @@ def NN_fit(prefix, dustname, cells, nnabs, nnemit, file_absorbed, file_emitted, 
     print("DUST: %s,    CELLS: %d,    NABS: %d,     EMIT: %d" % (dustname, cells, Na, Ne))
     print("--------------------------------------------------------------------------------")
         
-    # NORMALISE
+    # NORMALISE, different factor for each frequency
     Ma = np.clip(np.mean(A, axis=0), 1.0e-20, 1.0e10)
     Me = np.clip(np.mean(E, axis=0), 1.0e-20, 1.0e10)
-    sys.stdout.flush()
-    # print('Ma = ', Ma)
-    # print('Me = ', Me)
+    print('Ma = ', Ma)
+    print('Me = ', Me)
     sys.stdout.flush()
     for i in range(Na):  A[:,i] /= Ma[i]
     for i in range(Ne):  E[:,i] /= Me[i]
     np.asarray(Ma, np.float32).tofile(f'A_{dustname}.norm')
     np.asarray(Me, np.float32).tofile(f'E_{dustname}.norm')
 
-    if (1):
+    if (0):
         A.tofile('%s_A_fit.dump' % dustname)
         E.tofile('%s_E_fit.dump' % dustname)
     
@@ -115,7 +121,7 @@ def NN_fit(prefix, dustname, cells, nnabs, nnemit, file_absorbed, file_emitted, 
 
     print('Training...')
     sys.stdout.flush()
-    train_steps   =  MAXITER
+    train_steps   =  nnmaxiter
     t1 = time.time()    
     os.system('chroma.py 255 0 0')
     for epoch in range(train_steps):
@@ -183,7 +189,7 @@ def NN_fit(prefix, dustname, cells, nnabs, nnemit, file_absorbed, file_emitted, 
 
 
         
-def NN_solve(prefix, dustname, nnabs, nnemit, file_absorbed, file_emitted='', nngpu=1):
+def NN_solve(prefix, dustname, nnabs, nnemit, file_absorbed, file_emitted='', nngpu=1, nnnet=[13,17,13]):
     """
     Assuming there already exists a NN solution in <prefix>_<dustname>.nn,
     convert absorptions [CELLS, nnabs] into emission [CELLS, nnemit].
@@ -202,6 +208,10 @@ def NN_solve(prefix, dustname, nnabs, nnemit, file_absorbed, file_emitted='', nn
         file_absorbed = absorptions scaled to correspond to absorptions of the
                         current dust component, divided by abundance
         file_emitted  = file for the predicted emission, nnemit frequencies
+    Note:
+        - all data on absorptions and emissions read to Python arrays
+        - GPU memory limitations are overcome by splitting the actual
+          NN calculation to smaller batches of cells
     """
     Na = len(nnabs)
     Ne = len(nnemit)
@@ -209,23 +219,23 @@ def NN_solve(prefix, dustname, nnabs, nnemit, file_absorbed, file_emitted='', nn
     class MyNet(nn.Module):
         def __init__(self):
             super().__init__()
-            if (len(NET)==2):
+            if (len(nnnet)==2):
                 self.layers = nn.Sequential(
-                nn.Linear(Na, NET[0]),
+                nn.Linear(Na, nnnet[0]),
                 nn.LeakyReLU(),
-                nn.Linear(NET[0], NET[1]),
+                nn.Linear(nnnet[0], nnnet[1]),
                 nn.LeakyReLU(),
-                nn.Linear(NET[1], Ne)
+                nn.Linear(nnnet[1], Ne)
                 )
-            elif (len(NET)==3):
+            elif (len(nnnet)==3):
                 self.layers = nn.Sequential(
-                nn.Linear(Na, NET[0]),
+                nn.Linear(Na, nnnet[0]),
                 nn.LeakyReLU(),
-                nn.Linear(NET[0], NET[1]),
+                nn.Linear(nnnet[0], nnnet[1]),
                 nn.LeakyReLU(),
-                nn.Linear(NET[1], NET[2]),
+                nn.Linear(nnnet[1], nnnet[2]),
                 nn.LeakyReLU(),
-                nn.Linear(NET[2], Ne)
+                nn.Linear(nnnet[2], Ne)
                 )                
         def forward(self, x):
             return self.layers(x)
@@ -261,18 +271,13 @@ def NN_solve(prefix, dustname, nnabs, nnemit, file_absorbed, file_emitted='', nn
     #        else:                FF_now[ifreq] *= 0.5*(nnabs[ifreq+1]-nnabs[ifreq-1])
     #
     # NORMALISED, absorptions divided by Ma, including AD HOC 1e20 for absorptions going into NN
-    # NORMALISATION A /= FF_now WAS NOT NEEDED AFTER ALL ??????????
+    # NORMALISATION A /= FF_now WAS NOT NEEDED AFTER ALL ?
     for ifreq in range(Na):  
         A[:,ifreq]  /=  Ma[ifreq] #### * FF_now[ifreq]
         print("#@ solve ifreq=%d, %.3e Hz, normalised absorptions <> = %12.4e" % (ifreq, nnabs[ifreq], np.mean(A[:,ifreq])))
 
         
         
-    dtype = torch.float
-    xObs       =  torch.zeros((cells, Na), device=device, dtype=dtype)
-    yObs       =  torch.zeros((cells, Ne), device=device, dtype=dtype)
-    xObs[:,:]  =  torch.tensor(A[:,:], device=device, dtype=dtype)
-
     MODEL = f'{prefix}_{dustname}.nn'
     try:
         model.load_state_dict(torch.load(MODEL))
@@ -287,8 +292,30 @@ def NN_solve(prefix, dustname, nnabs, nnemit, file_absorbed, file_emitted='', nn
         pass
 
     t0    = time.time()
-    # no extrapolation to negative intensities !
-    Epred = model(xObs).cpu().detach().numpy()
+    dtype = torch.float
+    
+    if (0): 
+        # all cells in one go
+        # xObs       =  torch.zeros((cells, Na), device=device, dtype=dtype)
+        yObs     =  torch.zeros((cells, Ne), device=device, dtype=dtype)
+        xObs     =  torch.tensor(A[:,:], device=device, dtype=dtype)
+        # no extrapolation to negative intensities !
+        Epred    =  model(xObs).cpu().detach().numpy()
+    else:
+        # split cells into batches
+        Epred  =  np.zeros((cells, Ne), np.float32)
+        batch  =  1000000
+        xObs   =  torch.zeros((batch, Na), device=device, dtype=dtype)
+        yObs   =  torch.zeros((batch, Ne), device=device, dtype=dtype)
+        a =  0
+        while (a<cells):
+            b  =  min(a+batch, cells)
+            print("...... NN_solve cells %d - %d   (%d cells)" % (a, b, b-a))
+            # xObs[0:(b-a),:]  =  torch.tensor(A[a:b,:], device=device, dtype=dtype)
+            xObs[0:(b-a),:]  =  torch.from_numpy(A[a:b,:])
+            Epred[a:b,:]     =  model(xObs).cpu().detach().numpy()[0:(b-a),:]
+            a += batch
+            
     if (LOG):
         Epred = 10.0**Epred
     Epred = np.clip(Epred, 0.0, 1.0e32)

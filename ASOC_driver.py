@@ -244,7 +244,8 @@ if (len(nnsolve)>0):
         if (s[0].find('optical')>=0):
             dust = s[1]
             nndust = write_nndust(dust, nnabs, 'nnabs')  # only nnabs frequencies
-            abu  = [ "", s[2] ][len(s)>2]                # could have ***abundance***
+            abu    = ""
+            if (len(s)>2):  abu  = s[2]    # could have ***abundance***
             fp.write('optical %s  %s\n' % (nndust, abu))
         elif (s[0].find('backgro')>=0):
             # s[1] if the intensity file => cut from nfreq to nnabs
@@ -336,23 +337,24 @@ fpo.close()
 # feed A2E_MABU.py only absorbed[0::nnthin, :], data for every nnthin:th cell
 # emitted.data contains all frequencies and maps can be written.... unless nnthin>1 !
 if ((len(nnmake)>0)&(nnthin>1)):
+    print("ASOC_driver, nnmake %s, nnthin %d .... fabs %s" % (nnmake, nnthin, fabs))
     H = np.fromfile(fabs, np.int32, 2)
     cells, nfreq = H
     # read and write in one go
-    tmp = np.fromfile(fabs, np.float32)[2:].reshape(cells, nfreq)[0::nnthin, :]
-    H[0] = tmp.shape[0]        
-    fp3 = open('thin.abs', 'wb')
-    fabs = 'thin.abs'
+    tmp  =  np.fromfile(fabs, np.float32)[2:].reshape(cells, nfreq)[0::nnthin, :]
+    H[0] =  tmp.shape[0]  # new number of cells
+    fabs = 'thin.abs'     # replaces original absorption file
+    fp3  =  open(fabs, 'wb')
     H.tofile(fp3)
     np.asarray(tmp, np.float32).tofile(fp3)
     fp3.close()
     del tmp
     t0 = time.time()
     print("================================================================================")
-    print('A2E_MABU.py %s %s %s %s' % (INI, 'thin.abs', femit, args))
+    print('A2E_MABU.py %s %s %s %s' % (INI, fabs, femit, args))
     print("================================================================================")
     os.system('cp %s a2e_mabu_backup.ini' % INI)
-    os.system('A2E_MABU.py %s %s %s %s' % (INI, 'thin.abs', femit, args))
+    os.system('A2E_MABU.py %s %s %s %s' % (INI, fabs, femit, args))
 else:
     t0 = time.time()
     print("================================================================================")

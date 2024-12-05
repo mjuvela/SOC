@@ -251,7 +251,8 @@ class User:
 
             if (s[0]=='singleabu'):
                 self.SINGLE_ABU = 1
-            if (s[0]=='optishalf'):
+                
+            if (s[0]=='optishalf'): # little memory savings, much longer runtimes
                 self.OPT_IS_HALF = 1
                 
                 
@@ -274,7 +275,6 @@ class User:
             
             if ((key.find('savetau')==0)&(len(s)>2)):
                 #     savetau   filename   um1 um2 um3 ....
-                #  if wavelength == -um[i], that means saving of column density
                 self.file_savetau  = s[1]   # prefix
                 for x in s[2:]:
                     if (float(x)<0.0):  self.savetau_freq.append(0.0)  # negative meaning column density
@@ -347,7 +347,10 @@ class User:
                 self.file_optical.append(a)
                 # optional second argument = abundance file
                 if (len(s)>2):
-                    self.file_abundance.append(s[2])
+                    if (s[2][0:1]=='#'):  # ... in case # is not separated by space
+                        self.file_abundance.append('#')
+                    else:
+                        self.file_abundance.append(s[2])
                 else:
                     self.file_abundance.append('#')
             if (key.find('externalm')==0):   self.file_external_mask= a            
@@ -1228,7 +1231,7 @@ def opencl_init(USER, verbose=False):
         print(" context  ", context)
         print(" queue    ", queue)
         print("--------------------------------------------------------------------------------")
-    return [context,], [queue,]
+    return [context,], [queue,], [device,]
 
 
 
@@ -1294,7 +1297,7 @@ def opencl_init_s(USER, verbose=False):
         print(" device   ", device)
         print(" context  ", context)
         print(" queue    ", queue)
-    return [context,], [queue,]
+    return [context,], [queue,], [device,]
 
 
 

@@ -343,10 +343,15 @@ def process_stochastic(isize, AALG):
     AF    = asarray(np.clip(AF, 1.0e-32, 1.0e+100), np.float32)
     ##
     # The rest is for stochastically heated grains
+    # print("AF %d,  AF_buf=NFREQ=%d " % (len(AF), NFREQ))
     cl.enqueue_copy(queue, AF_buf,    AF)
     noIw  = np.fromfile(FP, np.int32, 1)[0]
-    # print("                              === noIw = %5d ===" % noIw)
+    ##
+    ## Iw_buf      =  cl.Buffer(context, mf.READ_ONLY,  NE*NE*NFREQ*4)
     Iw    = np.fromfile(FP, np.float32, noIw)   # [ windex ], loop l=[0,NE-1[, u=[l+1,NE[
+    # print("  === noIw     = %7d ===" % noIw)
+    # print("  === len(Iw)  = %7d ===" % len(Iw))
+    # print("  === Iw_buf   = %7d ===" % (NE*NE*NFREQ))
     cl.enqueue_copy(queue, Iw_buf,    Iw)
     L1    = np.fromfile(FP, np.int32,   NE*NE)  # [ l*NE + u ]
     cl.enqueue_copy(queue, L1_buf,    L1)
@@ -435,6 +440,7 @@ for isize in range(NSIZE):
 
     
     if (isize>NSTOCH):  # this size treated with equilibrium temperature approximation
+        print("    isize = %d   equilibrium temperature" % isize)
         # AF = fraction of absorptions due to the current size
         AF    = asarray(SK_ABS[isize,:], float64) / asarray(K_ABS[:], float64)  # => E per grain
         AF   /= S_FRAC[isize]*GD  # "invalid value encountered in divide"
@@ -515,6 +521,8 @@ for isize in range(NSIZE):
     
     
     # The rest is for stochastically heated grains
+    print("    isize = %d   stochastic heating" % isize)
+    
     process_stochastic(isize, AALG)  # AALG given, PEMITTED updated
     continue
 

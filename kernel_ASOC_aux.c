@@ -21,11 +21,21 @@
 #define F2I(x)    (*(__global int*)&x)   //  __global BUFFER -> OTI
 #define I2F(x)    (*(float *)&x)         //           OTI    -> __global BUFFER
 
-#if 1
-# define DIMLIM 300
-#else
-# define DIMLIM 100 // if base grid NX is larger, use double precision for position
-#endif
+
+#if 1 // ------------------------------------------------------------
+# if (LEVELS<3)  // low hierarchy, float works better
+#  define DIMLIM 399
+# else            // deep hierarchy, move to double earlier
+#  define DIMLIM 199
+# endif
+#else // ------------------------------------------------------------
+# if 1
+#  define DIMLIM 300  // old default, should be smaller?
+# else
+#  define DIMLIM 100 // if base grid NX is larger, use double precision for position
+# endif
+#endif // ------------------------------------------------------------
+
 
 #if (NX>DIMLIM)  // from Index()
 # define ZERO 0.0
@@ -40,8 +50,24 @@
 #endif
 
 
+#if (NVIDIA>0)
+
+float atomicAdd_g_f(__global float* p, float val)
+{
+   float prev;
+   asm volatile(
+		"atom.global.add.f32 %0, [%1], %2;"
+		: "=f"(prev)
+		: "l"(p) , "f"(val)
+		: "memory"
+	       );
+   return prev;
+}
+
+#else
+
 inline void atomicAdd_g_f(volatile __global float *addr, float val) {
-#if 1
+# if 1
    union{
       unsigned int u32;
       float        f32;
@@ -53,10 +79,13 @@ inline void atomicAdd_g_f(volatile __global float *addr, float val) {
       current.u32  = atomic_cmpxchg( (volatile __global unsigned int *)addr, 
                                      expected.u32, next.u32);
    } while( current.u32 != expected.u32 );
-#else
+# else
    *addr += val ;
-#endif
+# endif
 }
+
+#endif
+
 
 
 constant float PHOTON_LIMIT = 1.0e-30f ;
@@ -719,7 +748,7 @@ __kernel void EqTemperature(const int       level,
    for(int i=id; i<LCELLS[level]; i+=gs) {   // loop over cells on a given level
       ind       =  OFF[level] + i ;
       Ein       =  (scale/adhoc) * EMIT[ind] * pown(8.0f, level) / DENS[ind] ; // 1e10 == ADHOC on host !!!!
-
+      
 #if (CR_HEATING>0)
       // for A2E_MABU.py CR_HEATING is integer (0=nothing, 1=CR, 2=2xCR, 3=ad hoc gas-dust)
       // for ASOC.py     CR_heating is just a flag, CR_HEATING_RATE multiplied for default CR rate

@@ -298,6 +298,25 @@ MIRROR =  1*('x' in USER.MIRROR)+ 2*('X' in USER.MIRROR)+  \
 
 if (VERBOSE): print("*** MIRROR *** ", MIRROR)
 
+
+
+
+# NOTE -- kernel_SOC now uses Healpix for pointsource and background simulation
+#         and this requires NSIDE to be defined
+#         The mapping kernels use different NSIDE and therefore their ARGS is different !!
+if (USER.sDEVICE==''):
+    # keyword platform =>  USER.PLATFORM, USER.IDEVICE
+    # (1) one can use keyword devices  to set USER.DEVICES = select between CPU and GPU
+    # (2) one can use keyword platform to select platform and optionally the device on that platform
+    #                 == USER.PLATFORM and USER.IDEVICE
+    context, commands, devices =  opencl_init(USER, 1)
+else:
+    # one uses keyword sdevice to specify a string in the name of the device
+    context, commands, devices =  opencl_init_s(USER, 1)
+    
+NVIDIA =  ('3090' in devices[0][0].name) | ('4070' in devices[0][0].name) | ('NVIDIA' in devices[0][0].name)
+
+
 ARGS = "-D NX=%d -D NY=%d -D NZ=%d -D BINS=%d -D WITH_ALI=%d -D PS_METHOD=%d -D FACTOR=%.4ef \
 -D CELLS=%d -D AREA=%.0f -D NO_PS=%d -D WITH_ABU=%d -D ROI_MAP=%d -D MAX_SPLIT=%d -D SELEM=%d \
 -D ROI_STEP=%d -D ROI_NSIDE=%d -D WITH_ROI_LOAD=%d -D WITH_ROI_SAVE=%d \
@@ -306,7 +325,7 @@ ARGS = "-D NX=%d -D NY=%d -D NZ=%d -D BINS=%d -D WITH_ALI=%d -D PS_METHOD=%d -D 
 -D LEVEL_THRESHOLD=%d -D POLRED=%d -D p00=%.4ff -D MINLOS=%.3ef -D MAXLOS=%.3ef \
 -D FFS=%d -D NODIR=%d -D USE_EMWEIGHT=%d -D SAVE_INTENSITY=%d -D NOABSORBED=%d -D INTERPOLATE=%d \
 -D ADHOC=%.5ef %s -D HPBG_WEIGHTED=%d -D WITH_MSF=%d -D NDUST=%d -D OPT_IS_HALF=%d -D POL_RHO_WEIGHT=%d \
--D MAP_INTERPOLATION=%d -D MIRROR=%d -D CR_HEATING=%d -D CR_HEATING_RATE=%.3ef" % \
+-D MAP_INTERPOLATION=%d -D MIRROR=%d -D CR_HEATING=%d -D CR_HEATING_RATE=%.3ef -D NVIDIA=%d" % \
 (  NX, NY, NZ, USER.DSC_BINS, USER.WITH_ALI, USER.PS_METHOD, FACTOR,
    CELLS, int(USER.AREA), max([1,int(USER.NO_PS)]), WITH_ABU, USER.ROI_MAP, MAX_SPLIT, SELEM,
    USER.ROI_STEP, USER.ROI_NSIDE, USER.WITH_ROI_LOAD, USER.WITH_ROI_SAVE,
@@ -316,7 +335,7 @@ ARGS = "-D NX=%d -D NY=%d -D NZ=%d -D BINS=%d -D WITH_ALI=%d -D PS_METHOD=%d -D 
    USER.LEVEL_THRESHOLD, len(USER.file_polred)>0, USER.p0, USER.MINLOS, USER.MAXLOS,
    USER.FFS, NODIR, USER.USE_EMWEIGHT, USER.SAVE_INTENSITY,  USER.NOABSORBED, USER.INTERPOLATE, 
    ADHOC, USER.kernel_defs, USER.HPBG_WEIGHTED, WITH_MSF, NDUST, USER.OPT_IS_HALF, USER.POL_RHO_WEIGHT,
-   USER.MAP_INTERPOLATION, MIRROR, (USER.CR_HEATING>0), USER.CR_HEATING)
+   USER.MAP_INTERPOLATION, MIRROR, (USER.CR_HEATING>0), USER.CR_HEATING, NVIDIA)
 # print(ARGS)
 VARGS = ""
 # VARGS += " -cl-nv-cstd=CL1.1 -cl-nv-arch sm_20 -cl-single-precision-constant -cl-mad-enable"
@@ -342,7 +361,6 @@ if (0):
 VARGS += " -cl-mad-enable -cl-no-signed-zeros -cl-finite-math-only"  # this seems ok on NVidia !!
 
 ARGS   += VARGS
-
 print(ARGS)
 
 # Create contexts, command queu, and program = kernels for the simulation step
@@ -350,21 +368,10 @@ print(ARGS)
 source  =  INSTALL_DIR+"/kernel_ASOC.c"        
 
 
-# NOTE -- kernel_SOC now uses Healpix for pointsource and background simulation
-#         and this requires NSIDE to be defined
-#         The mapping kernels use different NSIDE and therefore their ARGS is different !!
-if (USER.sDEVICE==''):
-    # keyword platform =>  USER.PLATFORM, USER.IDEVICE
-    # (1) one can use keyword devices  to set USER.DEVICES = select between CPU and GPU
-    # (2) one can use keyword platform to select platform and optionally the device on that platform
-    #                 == USER.PLATFORM and USER.IDEVICE
-    context, commands =  opencl_init(USER, 1)
-else:
-    # one uses keyword sdevice to specify a string in the name of the device
-    context, commands =  opencl_init_s(USER, 1)
 # fixed NSIDE=128 for the PS and BG simulations?
 program           =  get_program(context, commands, source, ARGS + " -D NSIDE=%d" % 128)
 mf                =  cl.mem_flags
+
 
 # A set of buffers needed by emission calculations
 LCELLS_buf, OFF_buf, PAR_buf, DENS_buf, EMIT_buf, DSC_buf, CSC_buf = [], [], [], [], [], [], []
@@ -1084,6 +1091,7 @@ else:
             # single dust            => we use ABS[1] and SCA[1]  
             # WITH_ABU               => we use OPT instead of ABS[1] and SCA[1]
             # WITH_ABU and WITH_MSF  => we use OPT **and** ABS[NDUST] and SCA[NDUST]
+            # t0 = time.time()
             if (WITH_ABU>0): # ABS, SCA, G are precalculated on host side -> OPT
                 OPT[:,:] = 0.0
                 if (USER.SINGLE_ABU):
@@ -1114,7 +1122,9 @@ else:
                     SCA[0] += AFSCA[idust][IFREQ]                    
             cl.enqueue_copy(commands[ID], ABS_buf[ID], ABS) 
             cl.enqueue_copy(commands[ID], SCA_buf[ID], SCA)
-       
+            # print("                  host side abu calculation: %.2f seconds" % (time.time()-t0))
+            # *** host-side abundance-related calculations 0.43 secc, out of a total of 2.5 secc. per iteration ***
+            
             if (VERBOSE):
                 sys.stdout.write("  FREQ %3d/%3d  %10.3e" % (IFREQ+1, NFREQ, FREQ))
                 sys.stdout.flush()
@@ -2694,6 +2704,7 @@ del OEMITTED
 
 # We do not need ABSORBED after this point, free some memory before spectrum calculation.
 if (not(USER.NOABSORBED)):
+    t123 = time.time()
     if (VERBOSE): print('*'*80)
     
     #  FABSORBED[:,:] *=  1.0e20 / (USER.GL*PARSEC)
@@ -2708,13 +2719,13 @@ if (not(USER.NOABSORBED)):
             coeff =                   FACTOR / (USER.GL*PARSEC)
         else:
             coeff =   (8.0**level) * (FACTOR / (USER.GL*PARSEC))
-        FABSORBED[a:b]  *=  coeff                            # volume scaling
+        # FABSORBED[a:b]  *=  coeff                            # volume scaling
         # frequency runs faster... update one cell at a time, all frequencies 
-        if (1):
+        if (0):
             # This must be a slow loop... but everything processed in the storage order, in minimal amount of memory
             for icell in range(a, b):
                 if (DENS[icell]>0.0):   
-                    FABSORBED[icell,:] /= DENS[icell]
+                    FABSORBED[icell,:] *= coeff / DENS[icell]
                 else:
                     FABSORBED[icell,:] = -1.0  # tell A2E to skip this one !!
         else: # 2019-02-26
@@ -2722,7 +2733,7 @@ if (not(USER.NOABSORBED)):
             # However, in a large model there may be 100e6 cells per level = tens of GB.
             # This forces one to read and write the array twice (sparse write on the second round)
             # -> possibly slower if one FABSORBED data for a single hierarchy level does not fit in the main memory
-            FABSORBED[a:b,:] /= DENS[a:b].reshape(b-a,1)
+            FABSORBED[a:b,:] *= coeff / DENS[a:b].reshape(b-a,1)
             m                 = nonzero(DENS[a:b]<=0.0)
             FABSORBED[m[0],0] = -1.0   
 
@@ -2760,7 +2771,7 @@ if (not(USER.NOABSORBED)):
         
     # FABSORBED =  FACTOR * absorbed energy per H,  FACTOR = 1e20
     del FABSORBED   # writes the rest of updates to USER.file_absorbed    
-    if (VERBOSE): print("FABSORBED saved and deleted")
+    if (VERBOSE): print("FABSORBED saved and deleted (%.1f seconds)" % (time.time()-t123))
     if (VERBOSE): print('*'*80)
     
 ## del ABSORBED
@@ -2937,7 +2948,7 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
             tmp =   abs((-asarray(USER.savetau_freq)-FREQ)/FREQ)
             if (min(tmp)<0.001):                      # -FREQ in savetau_freq => save column density
                 save_tau, save_colden = 0, 1
-            if ((save_tau==0)&(first_freq)&(min(USER.savetau_freq)<=0.0)):
+            if ((save_tau==0)&(first_freq)&(min(USER.savetau_freq)<=0.0)): # note !! cannot have save_tau and save_colden both for the same frequency
                 save_colden = 1
             tmp =   abs(asarray(USER.savetau_freq))
         first_freq = False

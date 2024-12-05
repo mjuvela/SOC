@@ -17,8 +17,8 @@ except:
 # temporary directories for absorption and emission files
 # emission files may be smaller (if output frequencies are limited)
 # and easier to put to ram disk
-ASHAREDIR = '/dev/shm/'     # temporary directory for absorptions
-ESHAREDIR = '/dev/shm/'     # temporary directory for emissions
+ASHAREDIR = '/dev/shm'     # temporary directory for absorptions
+ESHAREDIR = '/dev/shm'     # temporary directory for emissions
 
 KEEP_COMPONENT_EMITTED = False  # leave emitted files on the disk for each dust component spearately
 USE_MMAP = False                # False, unless CELLS*NOFREQ does not fit to main memory !!
@@ -42,7 +42,6 @@ if (len(sys.argv)<2):
     print("   ini file should contain keywords nnabs for absorbed and nnemit for the ")
     print("       emitted wavelengths in the NN solution")
     print("   nnmake prefix   =>  make NN mappings <prefix>_<dust>.nn")
-    print("   nnthin #        =>  in the above, use only thin:th cell")
     print("   nnsolve prefix  =>  calculate emission using NN mapping only,")
     print("                       absorbed.data must contain nnabs only, ")
     print("                       emitted.data will contain nnemit only")
@@ -53,6 +52,9 @@ if (len(sys.argv)<2):
     print("2024-04-02 -- added CR_HEATING flag to ini file")
     print("                    0 = no extra heating,     1 = default CR heating, ")
     print("                    2 = 2x default CR heaing, 3 = ad hoc gas-dust heating for dust")
+    print("2024-09-14 -- if options include nnmake, nnthin =>")
+    print("              nnthin must be applied also to abundances here (if given)")
+    print("2024-09-29 -- nnnet and nnmaxiter optionally read from ini")
     sys.exit()
 
     
@@ -80,9 +82,10 @@ CR_HEATING  =  0
 CLOUD       =  None
 KDENSITY    =  1.0
 
-nnabs, nnemit, nnmake, nnsolve, nnthin, nngpu = [], [], '', '', 1, 0
-# nnthin  = 1    # not used here, only in A2E_driver
-
+nnabs, nnemit, nnmake, nnsolve, nngpu = [], [], '', '', 0
+nnthin    = 1    # not used here, only in A2E_driver... except for the abundances
+nnmaxiter = 3000
+nnnet     = [13, 17, 13]
 
 fp  = open(sys.argv[1], 'r')
 for line in fp.readlines():
@@ -123,7 +126,7 @@ for line in fp.readlines():
             DUST.append(dustname.replace('.dust', ''))  # dust basename
             EQDUST.append(0)
         if (len(s)>2):      # we have abundance file
-            if (s[2]=="#"):
+            if (s[2][0:1]=="#"):
                 AFILE.append("")
             else:
                 AFILE.append(s[2])
@@ -157,15 +160,26 @@ for line in fp.readlines():
         nnmake = s[1]                   #  prefix for  <prefix>_<dust>.nn 
     if (s[0].find('nnsolve')>=0):       # solve  =   nnabs -> nnemit wavelengths only
         nnsolve = s[1]
-    if (s[0].find('nnthin')>=0):        # A2E_driver has taken care of nnthin already
-        nnthin = 1                      # in absorbed.data
+    if (s[0].find('nnthin')>=0):        # A2E_driver has taken care of nnthin in absorbed.data,
+        nnthin = int(s[1])              # nnthin is applied to abundances in this file !!
     if (s[0].find('nngpu')>=0):         # use GPU for NN calculations
         nngpu  = int(s[1])
     # nnmake  =>  full sets of frequencies on absorbed, in dusts
     # nnsolve =>  absorbed.data only for nnabs, emitted.data only for nnemit wavelengths
-    
-
-
+    # nnmake + nnthin => apply nnthin also to abundances
+    if (s[0].find('tmpdir')>=0):  
+        # split absorptions and emission not in necessarily in /dev/shm but...
+        # ini-file  "tmpdir ."  =>  split abs/emit saved not in /dev/shm but in the current directory
+        ASHAREDIR = s[1]
+        ESHAREDIR = s[1]
+        print("A2E_MABU.py split absorbed and emittted to directories %s and %s" % (ASHAREDIR, ESHAREDIR))
+    if (s[0].find('nnmaxiter')>=0):
+        nnmaxiter = int(s[1])
+    if (s[0].find('nnnet')>=0):
+        nnnet = []
+        for i in range(1, len(s)):
+            if (s[i][0:1]=='#'): break
+            else: nnnet.append(int(s[i]))
     
 fp.close()
 fplog.write("%s ->  GPU=%d\n" % (sys.argv[1], GPU))
@@ -205,7 +219,7 @@ for x in EQDUST:
 # read KABS for each dust from the solver files
 # in case of nnsolve, KABS <-  KABS[IND_nnabs] !!
 NDUST = len(DUST)
-GD    = np.zeros(NDUST, np.float32)  # grain density
+# GD    = np.zeros(NDUST, np.float32)  # grain density  # not used =>  2024-09-29  removed as array
 RABS  = []
 FREQ  = []
 NFREQ = 0
@@ -214,12 +228,12 @@ for idust in range(NDUST):
     if (EQDUST[idust]):
         print("=== EQDUST")
         lines      =  open(DUST[idust]).readlines()
-        GD[idust]  =  float(lines[1].split()[0])
+        GD         =  float(lines[1].split()[0])
         radius     =  float(lines[2].split()[0])
         d          =  np.loadtxt(DUST[idust], skiprows=4)
         NFREQ      =  d.shape[0]
         FREQ       =  d[:,0]
-        kabs       =  np.pi*radius**2.0*GD[idust] * d[:,2]
+        kabs       =  np.pi*radius**2.0*GD * d[:,2]
         if (len(RABS)<2):
             RABS = np.zeros((NFREQ, NDUST), np.float64)  # total cross section per unit density
         RABS[:,idust] = kabs
@@ -291,8 +305,10 @@ print('NOFREQ LIMITED TO %d --- currently only for eqdust solved inside A2E_MABU
 
 
 # file of absorptions should start with three integers
+# in case of nnmake+nnthin, CELLS is less than the full model, less than the size
+# of the abundance files
 H             =  np.fromfile(sys.argv[2], np.int32, 2)
-CELLS, NFFREQ = H[0], H[1]
+CELLS, NFFREQ =  H[0], H[1]
 print("=== Absorption file:  CELLS %d, NFFREQ %d, NFREQ %d, NDUST %d" % (CELLS, NFFREQ, NFREQ, NDUST))
 
 # Convert RABS[NFREQ, NDUST] to better normalised relative cross section
@@ -613,8 +629,6 @@ def SolveEquilibriumDust(dust, f_absorbed, f_emitted, UM_MIN=0.0001, UM_MAX=9999
     return nofreq
         
         
-
-
 FPE  = []
 FPEP = None
     
@@ -622,13 +636,18 @@ fplog.write("\nAbsorption file: CELLS %d, NFREQ %d, NDUST %d\n" % (CELLS, NFREQ,
 
 
 # Read abundance files... we must have enough memory for that
-ABU = np.ones((CELLS, NDUST), np.float32)
+print("Reading abundances for %d cells" % CELLS)
+ABU = np.ones((CELLS, NDUST), np.float32) # for nnmake+nnthin CELLS < abundance elements
 for idust in range(NDUST):
     if (len(AFILE[idust])>1): # we have a file for the abundance of the current dust species
-        ABU[:,idust] = np.fromfile(AFILE[idust], np.float32, CELLS)
+        if ((len(nnmake)>0)&(nnthin>1)):
+            ABU[:,idust] = np.fromfile(AFILE[idust], np.float32)[0::nnthin]
+        else:
+            ABU[:,idust] = np.fromfile(AFILE[idust], np.float32, CELLS)
 #for idust in range(NDUST):
 #    print("IDUST=%d  ABUNDANCE %.3f" % (idust, np.mean(ABU[:,idust])))
 
+    
 # Initialise OpenCL to split the absorptions
 # First check the number of frequencies in the absorption file...
 fp_absorbed   = open(sys.argv[2], 'rb')
@@ -820,7 +839,7 @@ for IDUST in range(NDUST):
             asarray(tmp, float32).tofile('NN_ABS_%s.dump' % DUST[IDUST])
             
             
-        NN_solve(nnsolve, DUST[IDUST], nnabs, nnemit, ASHAREDIR+'/tmp.absorbed', ESHAREDIR+'/tmp.emitted', nngpu=nngpu)
+        NN_solve(nnsolve, DUST[IDUST], nnabs, nnemit, ASHAREDIR+'/tmp.absorbed', ESHAREDIR+'/tmp.emitted', nngpu=nngpu, nnnet=nnnet)
 
         
         if (0): # @@@
@@ -868,7 +887,9 @@ for IDUST in range(NDUST):
         #                 CR heating takes into account density-dependent coupling
         #                 heating is split between the dust species in proportion of kabs
         #                 in practice, the CR heating rate is transmitted to kernel in the last frequency channel!
+        print()
         print("=== SolveEquilibriumDust(%s) === ..... GPU = " % DUST[IDUST], GPU)
+        print()
         nofreq = SolveEquilibriumDust(DUST[IDUST], ASHAREDIR+'/tmp.absorbed', ESHAREDIR+'/tmp.emitted', 
         UM_MIN, UM_MAX, MAP_UM, GPU, platforms, AALG)
         fplog.write("      SolveEquilibriumDust(%s) => nofreq %d, NOFREQ %d\n" % (DUST[IDUST], nofreq, NOFREQ))
@@ -920,9 +941,11 @@ for IDUST in range(NDUST):
                 os.system('A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f  %d      %d     %s' % (DUST[IDUST], ASHAREDIR, ESHAREDIR, GPU_TAG, nstoch, em_ifreq, aalg_file))
                 # we have emission in %s/tmp.emitted, polarised emission %s/tmp.emitted.P
             else:  # without polarised emission
+                print()
                 print("=3========================================================================================")
                 print('      A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d %d'         % (DUST[IDUST], ASHAREDIR, ESHAREDIR, GPU_TAG, nstoch, em_ifreq))
                 print("==========================================================================================")
+                print()
                 fplog.write('      A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d %d\n' % (DUST[IDUST], ASHAREDIR, ESHAREDIR, GPU_TAG, nstoch, em_ifreq))
                 os.system('A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d %d'           % (DUST[IDUST], ASHAREDIR, ESHAREDIR, GPU_TAG, nstoch, em_ifreq))
 
@@ -996,7 +1019,7 @@ for IDUST in range(NDUST):
             print("IND_nnemit ", IND_nnemit)
             print("        ", f2um(FREQ[IND_nnemit]))
         #  NN fitting  absorbed*1e20/FF <--> emitted
-        NN_fit(nnmake, DUST[IDUST], CELLS, nnabs, nnemit, ASHAREDIR+'/nn.absorbed', ESHAREDIR+'/nn.emitted', nngpu=nngpu)
+        NN_fit(nnmake, DUST[IDUST], CELLS, nnabs, nnemit, ASHAREDIR+'/nn.absorbed', ESHAREDIR+'/nn.emitted', nngpu=nngpu, nnnet=nnnet, nnmaxiter=nnmaxiter)
         # continue as without NN, tmp.emitted still has the emission for all frequencies
         
         
@@ -1046,8 +1069,8 @@ for IDUST in range(NDUST):
             print("Dust %s will not have polarised emission" % DUST[IDUST])
 
     t00 = time.time()
-    if (1):
-        # SLOW !
+    if (0):
+        # slow version...
         for ICELL in range(CELLS):
             # file = B(T)*KABS for a single dust component, total is sum of B(T)*KABS*ABU
             # FPE[ICELL,:] += np.fromfile(fp2, np.float32, NOFREQ) * ABU[ICELL, IDUST]
@@ -1056,18 +1079,15 @@ for IDUST in range(NDUST):
                 print("=== A2E_MABU %8d/%8d, add emission, NOFREQ %d" % (ICELL, CELLS, len(xxxx)))
             FPE[ICELL,:] += xxxx * ABU[ICELL, IDUST]
     else:
-        # MUCH FASTER
+        # much faster versin
+        # print("\n\n\n\n  --------------- ZZZ FASTER A2E_MABU SPLIT------------------\n\n\n\n")
         a = 0
         while(a<CELLS):
             b = min(a+1024, CELLS)
-            if (0):
-                print()
-                print(" ......... CELLS %d - %d OUT OF %d, NOFREQ=%d" % (a, b, CELLS, NOFREQ))
-                print(" ......... FPE[a:b,:]",      FPE[a:b,:].shape)
-                print(" ......... (b-a, NOFREQ) ",  b-a, NOFREQ)
-                print(" ......... ABU[a:b, IDUST]", ABU[a:b, IDUST].shape)
-            FPE[a:b,:] += np.fromfile(fp2, np.float32, (b-a)*NOFREQ).reshape(b-a, NOFREQ) * \
-                          ABU[a:b, IDUST].reshape(b-a,1)
+            xxxx = np.fromfile(fp2, np.float32, (b-a)*NOFREQ).reshape(b-a, NOFREQ) 
+            # all frequencies, yes multiplication xxx[b-a, NOFREQ] * B[b-a, 0:1] works
+            #                          as does    xxx[b-a, NOFREQ] * B[b-a, 0  ].reshape(b-a,1)
+            FPE[a:b, :] += xxxx * ABU[a:b, IDUST].reshape(b-a, 1)
             a += 1024
         # polarisation
         if (fp2P):
@@ -1094,7 +1114,7 @@ for IDUST in range(NDUST):
     
 
 print("DONE !!!")
-os.system('ls -l emitted.data')
+## os.system('ls -l emitted.data')
 
         
 
@@ -1132,5 +1152,5 @@ else:
         del FPEP
 
         
-os.system('cp emitted.data normal.emitted.data')
+## os.system('cp emitted.data normal.emitted.data')
 
