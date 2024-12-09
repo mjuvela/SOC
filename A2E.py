@@ -59,9 +59,6 @@ Notes 2019-10-28:
     Explicit normalisation is now also in DustLib.py, in GSETDust::Init.
 """
 
-ICELL     =  0
-GPU       =  0.0      #     GPU.PLATFORM
-WITH_X    =  0
         
 if (len(sys.argv)<4):
     print("\n  A2E.py  solver  absorbed  emitted  [ GPU [ nstoch [ IFREQ [ aalg ]]]]\n\n")
@@ -79,6 +76,9 @@ if (not(os.path.exists(sys.argv[2]))):
     print("????????????????????????????????????????????????????????????????????????????????")
     sys.exit(1)
     
+
+ICELL     =  0
+GPU       =  0.0      #     GPU.PLATFORM
     
 total_A2E_time = time.time()
 
@@ -89,7 +89,7 @@ BATCH  = 5120        #   46.9 seconds,  5593 cells per second
 BATCH  = 8192        #   37.4 seconds,  7006 cells per second
 # BATCH  = 16384     #   35.9 seconds,  7303 cells per second -- diminishing returns
 # BATCH = 32768      #   36.4 seconds,  7210 cells per second
-NSTOCH = 999
+NSTOCH = 9999
 AALG   = None   # filename
 
 IFREQ  = -1    # if >=0, save emission at this single frequency only
@@ -102,8 +102,12 @@ if (len(sys.argv)>4):
             if (len(sys.argv)>7):     # we have parameters for calculation of polarised intensity
                 AALG = sys.argv[7]    #  file with ---  {CELLS} aalg[CELLS]
 # print("A2E.py with IFREQ=%d" % IFREQ)        
-        
+
+# magic number to dumptemperature distributions
+WITH_X    =  NSTOCH==999
+
 # Read solver dump file
+SOLVER_NAME = sys.argv[1].replace('.solver', '')
 FP     =  open(sys.argv[1], 'rb')      # dump
 NFREQ  =  np.fromfile(FP, np.int32, 1)[0]                                # NFREQ
 FREQ   =  np.fromfile(FP, np.float32, NFREQ)                             # FREQ[NFREQ]
@@ -369,6 +373,9 @@ def process_stochastic(isize, AALG):
     # Loop over the cells, BATCH cells per kernel call
     t00 = time.time()
     fp_aalg = None
+    if (WITH_X):        
+        fpX = open('%s_size%03d.dump' % (SOLVER_NAME, isize), 'wb')
+        asarray([CELLS, NE], int32).tofile(fpX)
     if (AALG):  # grain alignment file give, calculate separately polarised intensity
         fp_aalg = open(AALG, 'rb')
         cells   = fromfile(fp_aalg, int32, 1)
@@ -386,6 +393,9 @@ def process_stochastic(isize, AALG):
             batch,     isize,
             Iw_buf,    L1_buf,  L2_buf,   Tdown_buf, EA_buf, 
             Ibeg_buf,  AF_buf,  ABS_buf,  EMIT_buf,  A_buf,   X_buf)
+            ###
+            cl.enqueue_copy(queue, X, X_buf)          
+            X[0:batch,:].tofile(fpX)                #   X[BATCH, NE]
         else:
             DoSolve(queue, [GLOBAL,], [LOCAL,], 
             batch,     isize,
@@ -423,6 +433,8 @@ def process_stochastic(isize, AALG):
     # print('   SIZE %2d/%2d  %.3e s/cell/size' % (isize, NSIZE, (time.time()-t00)/CELLS))
     if (AALG):
         fp_aalg.close()
+    if (WITH_X):
+        fpX.close()
         
     total_call_time = time.time() - total_call_time
     print("process_stochastic: kernel %.4f, total %.4f" % (total_kernel_time, total_call_time))    
@@ -439,7 +451,7 @@ Try interleaving the:
 for isize in range(NSIZE):        
 
     
-    if (isize>NSTOCH):  # this size treated with equilibrium temperature approximation
+    if (isize>=NSTOCH):  # this size treated with equilibrium temperature approximation
         print("    isize = %d   equilibrium temperature" % isize)
         # AF = fraction of absorptions due to the current size
         AF    = asarray(SK_ABS[isize,:], float64) / asarray(K_ABS[:], float64)  # => E per grain

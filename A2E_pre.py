@@ -192,6 +192,12 @@ asarray(  SKABS,       float32 ).tofile(fp)   # SKAbs_Int()    ~     pi*a^2*Qabs
 
 # print("NSIZE %d, NFREQ %d, NE %d" % (NSIZE, NFREQ, NE))
 
+if (1): # save also temperature grids for each size... auxiliary file
+    fpX = open('%s.tgrid' % (sys.argv[3].replace('.solver','')), 'wb')
+    asarray([NSIZE, NEPO], int32).tofile(fpX)
+else:
+    fpX = None
+    
 for isize in range(NSIZE):    
     
     # A2ELIB used logarithmically spaced energies
@@ -211,6 +217,9 @@ for isize in range(NSIZE):
     cl.enqueue_copy(queue, E_buf, asarray(E, float32))  # E[NEPO]
     cl.enqueue_copy(queue, T_buf, asarray(T, float32))  # T[NEPO]  --- NEPO elements for interpolation in PrepareTdown
 
+
+    if (fpX): asarray(T, float32).tofile(fpX)   #   T[NEPO]
+    
     # PrepareIntegrationWeights() kernel
     PrepareIw(queue, [GLOBAL,], [LOCAL,], NFREQ, NE, Ef_buf, E_buf, L1_buf, L2_buf, Iw_buf, wrk_buf, noIw_buf)
     cl.enqueue_copy(queue, Iw,   Iw_buf)
@@ -250,5 +259,8 @@ for isize in range(NSIZE):
         Ibeg[ifreq] = startind 
     Ibeg.tofile(fp)                             # --> Ibeg
                                                        
-fp.close()    
+fp.close()
+
+if (fpX): fpX.close()
+
 

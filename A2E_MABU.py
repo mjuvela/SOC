@@ -71,7 +71,7 @@ fplog.write("\n")
 
 # find dusts and potential abundance file names from the ini
 # DUST[] will contain only names of simple dusts !!
-DUST, AFILE, EQDUST = [], [], []
+DUST, AFILE, EQDUST, NSTOCH = [], [], [], []
 UM_MIN, UM_MAX      = 0.00001, 999999.0
 MAP_UM    = []     # list of wavelengths for which emission calculated, MAP_UM==[] => all frequencies
 GPU       = 0
@@ -115,16 +115,26 @@ for line in fp.readlines():
     if (s[0][0:6]=='optica'):
         dustname = s[1]
         tag      = open(dustname).readline().split()[0]
+        nstoch   = 999
         if (tag=='eqdust'):
             DUST.append(dustname)  # full filename for equilibrium dusts
             EQDUST.append(1)
         else:                      # else SHG = gset dust
             dustname = s[1].replace('_simple.dust','')
+            if (1): # read from dust file nstoch, replacing default 999
+                for ll in open('%s' % dustname).readlines():
+                    ss = ll.split()
+                    if (len(ss)>1):
+                        if (ss[0]=='nstoch'):
+                            nstoch = int(ss[1])
+                            if (nstoch<0): nstoch = 999
             # drop "gs_" from the dust name -- the solver file will be named without "gs_"
             if (dustname[0:3]=='gs_'):                  
                 dustname = dustname[3:]
             DUST.append(dustname.replace('.dust', ''))  # dust basename
             EQDUST.append(0)
+        print(dustname, nstoch)
+        NSTOCH.append(nstoch)
         if (len(s)>2):      # we have abundance file
             if (s[2][0:1]=="#"):
                 AFILE.append("")
@@ -183,6 +193,8 @@ for line in fp.readlines():
     
 fp.close()
 fplog.write("%s ->  GPU=%d\n" % (sys.argv[1], GPU))
+
+
 
 print("================================================================================")
 print("A2E_MABU dusts: ", DUST)
@@ -898,7 +910,8 @@ for IDUST in range(NDUST):
         # 2021-05-03  ---  if MAP_UM is given, use the first frequency ==> A2E.py will still solve emission
         #                  for either all the frequencies or just for a single frequency
         em_ifreq = -1    # A2E.py will solve all frequencies or only one frequency !
-        nstoch   = 999   # currently all bins as stochastically heated
+        ### nstoch   = 999   # currently all bins as stochastically heated
+        nstoch = NSTOCH[IDUST]
         ## nstoch   = 0
         if (len(MAP_UM)>0): 
             em_ifreq = argmin(abs(um2f(MAP_UM[0])-FREQ))
