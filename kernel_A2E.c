@@ -75,8 +75,7 @@ __kernel void DoSolve(const      int     batch,   //  0  cells per call
          L[IND(j,i)] += L[IND(u,i)] ;
       }
    }
-   
-   
+      
    // Solve
    XL[0] = 1.0e-20f ;
    for(j=1; j<NE; j++) {

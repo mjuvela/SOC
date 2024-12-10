@@ -34,7 +34,7 @@ DUSTEM_DIR  = '/home/mika/tt/dustem4.2_web'
 
 # EPSABS 1e-25 ok for DustEM 0.5%,  1e-23 ok within 1%
 EPSABS  = 1.0e-25  # absolute tolerance of integrals
-EPSABS2 = 1.0e-19
+EPSABS2 = 1.0e-20
 
 # for testing only !!
 # EPSABS  = 1.0e-23  # absolute tolerance of integrals
@@ -2433,7 +2433,7 @@ class GSETDust(DustO):
         Etmp   =  iw*(self.C_E[i,:]/self.C_SIZE[i]**3.0) + (1.0-iw)*(self.C_E[i+1,:]/self.C_SIZE[i+1]**3.0)
         Etmp  *=  a**3   # for the actual grain size, after interpolating E/a^3
         # Interpolate along this vector = not E(T) but T(E)
-        if (1): # linear interpolation along the energy axis
+        if (0): # linear interpolation along the energy axis
             ip     =  interp1d(Etmp, self.C_TEMP)
             return ip(E)
         else:   # linear interpolation on logarithmic scale
@@ -2453,13 +2453,13 @@ class GSETDust(DustO):
         Note:
             2018-12-24 -- tested E2T() and T2E() - results ok.
         """
-        # Find closest size bins
+        # Find closest size bins ~  self.C_E
         a  = double(self.SIZE_A[isize])
         for i in range(1, self.C_NSIZE):
             if (a<self.C_SIZE[i]): break
         i -= 1   #  current size should be between i and i+1 bins in the C_E array
         # Interpolate the two vectors for the two sizes in C_SIZE[]
-        iw     = (self.C_SIZE[i+1]-a) / (self.C_SIZE[i+1]-self.C_SIZE[i])
+        iw     = (self.C_SIZE[i+1]-a) / (self.C_SIZE[i+1]-self.C_SIZE[i])  # weight for C_SIZE[i]
         Etmp   =  iw*(self.C_E[i,:]/self.C_SIZE[i]**3.0)  +  (1.0-iw)*(self.C_E[i+1,:]/self.C_SIZE[i+1]**3.0)
         Etmp  *=  a**3   # for the actual grain size, after interpolating E/a^3
         if (isize==5):
@@ -2467,10 +2467,10 @@ class GSETDust(DustO):
             self.C_SIZE[i],      a, 
             self.C_SIZE[i+1],    iw))
         # Interpolate along this vector = along temperature axis
-        if (1): # linear interpolation along the temperature axis
+        if (0): # linear interpolation along the temperature axis
             ip     =  interp1d(self.C_TEMP, Etmp)
             return ip(T)
-        else:   # linear interpolation on logarithmic scale
+        else:   # linear interpolation on logarithmic scale -- much smoother T(E) !!
             ip     =  interp1d(log(self.C_TEMP), log(Etmp))
             return exp(ip(log(T)))
 

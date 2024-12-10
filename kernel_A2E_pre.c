@@ -4,6 +4,13 @@
 #define C_LIGHT   (2.99792e+10f)
 // #define SCALE     (1.0e20f)  --- replaced by FACTOR 
 
+// float vs. double, no effect on dN/dT waves
+#define REAL double
+
+
+#if 1
+
+// Interpolation has no effect in dN/dT waves
 
 float Interpolate(const int n, const __global float *x, const __global float *y, const float x0) {
    // Return linear-interpolated value based on (x,y) vectors.
@@ -14,14 +21,41 @@ float Interpolate(const int n, const __global float *x, const __global float *y,
       b = (a+c)/2 ;
       if (x[b]>x0) c = b ; else a = b ;
    }
-   for(b=a; b<=c; b++) {     // used b=a+1 ... leads to seg.fault (if a==b ???)
+   for(b=a; b<=c; b++) {      // used b=a+1 ... leads to seg.fault (if a==b ???)
       if (x[b]>=x0) break ;  // until x[b] first above x0
    }
-   float  w = (x[b]-x0) / (x[b]-x[b-1]) ;
+   //   x[b-1] < x0 < x[b]
+   float  w = (x[b]-x0) / (x[b]-x[b-1]) ;  // distance from x[b] => weight for b-1
    return w*y[b-1] + (1.0f-w)*y[b] ;
 }
 
+#else
 
+float Interpolate(const int n, const __global float *x, const __global float *y, const float x0) {
+   // Return value interpolated on log-log scale
+   if (x0<=x[0  ])  return y[0] ;    // no extrapolation !
+   if (x0>=x[n-1])  return y[n-1] ;
+   int a=0, c=n-1, b ;
+   while((c-a)>4) {
+      b = (a+c)/2 ;
+      if (x[b]>x0) c = b ; else a = b ;
+   }
+   for(b=a; b<=c; b++) {     // used b=a+1 ... leads to seg.fault (if a==b ???)
+      if (x[b]>=x0) break ;  // until x[b] first above x0
+   }
+   float  w = (log(x[b])-log(x0)) / (log(x[b])-log(x[b-1])) ;
+# if 1
+   return exp(w*log(y[b-1]) + (1.0f-w)*log(y[b])) ;
+# else
+   return w*y[b-1] + (1.0f-w)*y[b] ;
+# endif
+}
+
+#endif
+
+
+// SS... no effect on dN/dT waves
+#define SS  8
 
 __kernel void PrepareTdown(const    int     NFREQ,       // number of frequencies in the grid
                            __global float  *FREQ,        // FREQ[NFREQ], basic frequency grid
@@ -33,16 +67,21 @@ __kernel void PrepareTdown(const    int     NFREQ,       // number of frequencie
                            __global float  *Tdown        // Tdown[NE] current size
                           )
 {
-   //  Prepare vector TDOWN = transition matrix elements for transitions u -> u-1, D&L01, Eq. 41
+   //  Prepare vector TDOWN = transition matrix elements for transitions u -> u-1,
+   //  D&L01, Eq. 41, Thermal continous approximation.
    //  Needs SKabs_Int(f) =  SKabs(SIZE[size], freq) * GRAIN_DENSITY * S_FRAC[size]
    //                     =  [ PI*a^2 * Q ]  *  [ GD*S_FRAC ],  with interpolated Q
    //  We replaced SKabs_Int() with SKabs() so final division with GD*S_FRAC is here removed!
    //  One work item per upper level u... probably efficient only on CPU
+   //    T_lu  =  0,   l<u-1
+   //    T_lu  ~  1/(Eu-El) * (8*pi/(h^3*c^2))  *   Integral   E^3 C(E)  / (exp(E/kT)-1)  dE
+   //    below
+   //    T_lu  ~  1/(Eu-El) * (8*pi/(c^3*h**2)) *   SUM        E^3 C(E)  / (exp(E(kT)-1)
    const int u = 1 + get_global_id(0) ;  //  u = 1,..., NE-1
    if (u>=NE) return ;   
    if (u==1) Tdown[0]  = 0.0 ;
    double Tu, I, ee0, ee1, yy0, yy1, Eu, El, x ;
-   int i ;         
+   int i ;
    Eu   =  0.5*(E[u  ]+E[u+1]) ;          // at most  u+1 = NE-1+1 = NE < NEPO
    El   =  0.5*(E[u-1]+E[u  ]) ;          // at least u-1 = 1-1 = 0
    Tu   =  Interpolate(NE+1, E, T, Eu) ;  // would be better if interpolated on log-log scale ?
@@ -50,27 +89,29 @@ __kernel void PrepareTdown(const    int     NFREQ,       // number of frequencie
    yy0  =  0.0 ;         
    i    =  0 ;            
    I    =  0.0 ;
-   while ((i<(NFREQ-1)) && Ef[i+1]<Eu) {
+   while ((i<(NFREQ-1)) && Ef[i+1]<Eu) {  // integrate full bins
       ee0  =  Ef[i] ;
       // In A2ELIB, SKabs_Int() uses Interpolate0 for frequency interp... which is linear interpolation
-      x    =  Interpolate(NFREQ, FREQ, SKABS, ee0/PLANCK) ; // this apparently fine on linear scale...
-      yy0  =  ee0*ee0*ee0* x /(exp(ee0/(BOLTZMANN*Tu))-1.0) ;
-      for(int j=0; j<8; j++) {
-         ee1  =  Ef[i] + (j+1)*(Ef[i+1]-Ef[i])/8.0 ;
+      x    =  Interpolate(NFREQ, FREQ, SKABS, ee0/PLANCK)    ;  // this apparently fine on linear scale...
+      yy0  =  ee0*ee0*ee0* x /(exp(ee0/(BOLTZMANN*Tu))-1.0) ;   // E^3 Cabs / (exp(E/(kT))-1) = integrand
+      for(int j=0; j<SS; j++) {                                 // substepping
+         ee1  =  Ef[i] + (j+1)*(Ef[i+1]-Ef[i])/SS ;
          x    =  Interpolate(NFREQ, FREQ, SKABS, ee1/PLANCK) ; // SKabs_Int(size, ee1/Planck)
          yy1  =  ee1*ee1*ee1 * x / (exp(ee1/(BOLTZMANN*Tu))-1.0) ;
-         I   +=  0.5*(ee1-ee0)*(yy1+yy0) ;
-         ee0  =  ee1 ;
+         // now  [ee0, ee1] with values [yy0, yy1]
+         I   +=  0.5*(ee1-ee0)*(yy1+yy0) ;                     // Euler integration of the substep
+         ee0  =  ee1 ;   // move to next start position
          yy0  =  yy1 ;
       }
       i++ ;
       // if (i>(NFREQ-2)) break ;  // [NFREQ-2] +1 = NFREQ-1 on next loop ... still ok
    }
-   if (Eu<Ef[NFREQ-1]) {
-      for (int j=0; j<8; j++) {
-         ee1  =  Ef[i]+(j+1)*(Eu-Ef[i])/8.0  ;
+   // Now integration completed up to Ef[i],   ee0 == EF[i]
+   if (Eu<Ef[NFREQ-1]) {                     // last partial step [Ef[i], Eu]
+      for (int j=0; j<SS; j++) {            // substepping over 
+         ee1  =  Ef[i]+(j+1)*(Eu-Ef[i])/SS  ;
          // yy1  =  ee1*ee1*ee1*SKABS(size,ee1/PLANCK)/(exp(ee1/(BOLZMANN*Tu))-1.0) ;
-         x    =  Interpolate(NFREQ, FREQ, SKABS, ee1/PLANCK) ;  // SKabs_Int(size, ee1/PLANCK)
+         x    =  Interpolate(NFREQ, FREQ, SKABS, ee1/PLANCK) ;  // SKabs_Int(size, ee1/PLANCK) => Cabs
          yy1  =  ee1*ee1*ee1 * x / (exp(ee1/(BOLTZMANN*Tu))-1.0) ;
          I   +=  0.5*(ee1-ee0)*(yy1+yy0) ;
          ee0  =  ee1 ;
@@ -78,8 +119,7 @@ __kernel void PrepareTdown(const    int     NFREQ,       // number of frequencie
       }
    } 
    // I *= 8.0*PI/((Eu-El)*C_LIGHT*C_LIGHT*PLANCK*PLANCK*PLANCK) ;
-   // Warning:   8.0*PI/(C_LIGHT*C_LIGHT*PLANCK*PLANCK*PLANCK)  = 9.612370e+58
-   I   *=  9.612370e+58 / (Eu-El) ;
+   I   *=  9.612370e+58 / (Eu-El) ;   //  ==    8*pi / (c^2 h^3)
    // printf("%12.4e\n", I) ;
    Tdown[u] = I ;
 }
@@ -171,70 +211,103 @@ __kernel void PrepareIntegrationWeights(const int NFREQ,
       // Gul, NABS and E are all linear functions on the interval,
       // so the integrand is (at most) third degree polynomial
       for (i=1; i<NFREQ+4; i++) {         
-         if (freq_e2[i-1]>Ef[NFREQ-1] || freq_e2[i-1]>=W[3]) break ;	// Ef[i] = photon energy at freq[i]
+         if (freq_e2[i-1]>Ef[NFREQ-1] || freq_e2[i-1]>=W[3]) break ;     // Ef[i] = photon energy at freq[i]
          if (freq_e2[i]<W[0] || freq_e2[i-1]<=Ef[0]) continue ;            
          j=0;
          while (Ef[j]<freq_e2[i-1] && j<NFREQ-2) j++ ;            
          // now Ef[j-1] < freq_e2[i-1] <= Ef[j],   freq_e2[i]<=Ef[j+1]
                         
          // 1
-         if (W[1]<=freq_e2[i-1] && freq_e2[i]<=W[2]) {	 // on the flat part of Gul
+         if (W[1]<=freq_e2[i-1] && freq_e2[i]<=W[2]) {    // on the flat part of Gul
             Gul = min(dEu, dEl)/(dEu*dEl) ;
             
             if (freq_e2[i]<=Ef[j]) { // between Ef[j-1] and Ef[j]
-               //                  (                                                                                                                                        )
-               temp_Iw[j  ] += Gul*(   freq_e2[i]*freq_e2[i]*(  1.0/3.0*freq_e2[i]-1.0/2.0*Ef[j-1] )  -  freq_e2[i-1]*freq_e2[i-1]*( 1.0/3.0*freq_e2[i-1]-1.0/2.0*Ef[j-1])   )   /  (Ef[j]-Ef[j-1]+1e-120) ;
-               temp_Iw[j-1] += Gul*(   freq_e2[i]*freq_e2[i]*( -1.0/3.0*freq_e2[i]+1.0/2.0*Ef[j  ] )  -  freq_e2[i-1]*freq_e2[i-1]*(-1.0/3.0*freq_e2[i-1]+1.0/2.0*Ef[j  ])   )   /  (Ef[j]-Ef[j-1]+1e-120) ;
-            } else {		        // between Ef[j] and Ef[j+1]
-               temp_Iw[j+1] += Gul*(freq_e2[i]*freq_e2[i]*(1.0/3.0*freq_e2[i]-1.0/2.0*Ef[j]) - freq_e2[i-1]*freq_e2[i-1]*(1.0/3.0*freq_e2[i-1]-1.0/2.0*Ef[j])) / (Ef[j+1]-Ef[j]+1e-120) ;
+               //    (                         )
+               temp_Iw[j  ] += Gul*(   freq_e2[i]*freq_e2[i]*(  1.0/3.0*freq_e2[i]-1.0/2.0*Ef[j-1] )  -
+                                       freq_e2[i-1]*freq_e2[i-1]*( 1.0/3.0*freq_e2[i-1]-1.0/2.0*Ef[j-1])   )   /
+                 (Ef[j]-Ef[j-1]+1e-120) ;
+               
+               temp_Iw[j-1] += Gul*(   freq_e2[i]*freq_e2[i]*( -1.0/3.0*freq_e2[i]+1.0/2.0*Ef[j  ] )  -
+                                       freq_e2[i-1]*freq_e2[i-1]*(-1.0/3.0*freq_e2[i-1]+1.0/2.0*Ef[j  ])   )   /
+                 (Ef[j]-Ef[j-1]+1e-120) ;
+               
+            } else {                        // between Ef[j] and Ef[j+1]
+               
+               temp_Iw[j+1] += Gul*(freq_e2[i]*freq_e2[i]*(1.0/3.0*freq_e2[i]-1.0/2.0*Ef[j]) -
+                                    freq_e2[i-1]*freq_e2[i-1]*(1.0/3.0*freq_e2[i-1]-1.0/2.0*Ef[j])) /
+                 (Ef[j+1]-Ef[j]+1e-120) ;
+               
                temp_Iw[j] += Gul*(freq_e2[i]*freq_e2[i]*(-1.0/3.0*freq_e2[i]+1.0/2.0*Ef[j+1]) -
-                                  freq_e2[i-1]*freq_e2[i-1]*(-1.0/3.0*freq_e2[i-1]+1.0/2.0*Ef[j+1])) / (Ef[j+1]-Ef[j]+1e-120) ;
+                                  freq_e2[i-1]*freq_e2[i-1]*(-1.0/3.0*freq_e2[i-1]+1.0/2.0*Ef[j+1])) /
+                 (Ef[j+1]-Ef[j]+1e-120) ;
+               
             }
          }
          
          // 2
-         if (W[0]<=freq_e2[i-1] && freq_e2[i]<=W[1]) {		// on the upslope
+         if (W[0]<=freq_e2[i-1] && freq_e2[i]<=W[1]) {           // on the upslope
             // Gul = (freq_e2[i-1]-W[0])/(dEu*dEl) ;    Gul2 = (freq_e2[i]-W[0])/(dEu*dEl) ;
             if (freq_e2[i]<=Ef[j]) { // between Ef[j-1] and Ef[j]
-               temp_Iw[j] += (  freq_e2[i]*freq_e2[i]    *(1.0/4.0*freq_e2[i]*freq_e2[i]     - 1.0/3.0*(Ef[j-1]+W[0])*freq_e2[i] + 0.5*W[0]*Ef[j-1]) -
-                                freq_e2[i-1]*freq_e2[i-1]*(1.0/4.0*freq_e2[i-1]*freq_e2[i-1] - 1.0/3.0*(Ef[j-1]+W[0])*freq_e2[i-1] + 0.5*W[0]*Ef[j-1]))     /  (dEl*dEu*(Ef[j]-Ef[j-1]+1e-120)) ;                  
-               temp_Iw[j-1] += (freq_e2[i]*freq_e2[i]*(-1.0/4.0*freq_e2[i]*freq_e2[i] +
-                                                       1.0/3.0*(Ef[j]+W[0])*freq_e2[i] - 0.5*W[0]*Ef[j]) -
-                                freq_e2[i-1]*freq_e2[i-1]*(-1.0/4.0*freq_e2[i-1]*freq_e2[i-1] +
-                                                           1.0/3.0*(Ef[j]+W[0])*freq_e2[i-1] - 0.5*W[0]*Ef[j])) / (dEl*dEu*(Ef[j]-Ef[j-1]+1e-120)) ;
-            } else {		  // between Ef[j] and Ef[j+1]
-               temp_Iw[j+1] += (freq_e2[i]*freq_e2[i]*(1.0/4.0*freq_e2[i]*freq_e2[i] -
-                                                       1.0/3.0*(Ef[j]+W[0])*freq_e2[i] + 1.0/2.0*W[0]*Ef[j]) -
-                                freq_e2[i-1]*freq_e2[i-1]*(1.0/4.0*freq_e2[i-1]*freq_e2[i-1] -
-                                                           1.0/3.0*(Ef[j]+W[0])*freq_e2[i-1] + 1.0/2.0*W[0]*Ef[j])) / (dEl*dEu*(Ef[j+1]-Ef[j]+1e-120)) ;
-               temp_Iw[j] += (freq_e2[i]*freq_e2[i]*(-1.0/4.0*freq_e2[i]*freq_e2[i] +
-                                                     1.0/3.0*(Ef[j+1]+W[0])*freq_e2[i] - 1.0/2.0*W[0]*Ef[j+1]) -
-                              freq_e2[i-1]*freq_e2[i-1]*(-1.0/4.0*freq_e2[i-1]*freq_e2[i-1] +
-                                                         1.0/3.0*(Ef[j+1]+W[0])*freq_e2[i-1] - 1.0/2.0*W[0]*Ef[j+1])) / (dEl*dEu*(Ef[j+1]-Ef[j]+1e-120)) ;
+               
+               temp_Iw[j] += (  freq_e2[i]*freq_e2[i]     * (1.0/4.0*freq_e2[i]*freq_e2[i]     -
+                                                             1.0/3.0*(Ef[j-1]+W[0])*freq_e2[i] + 0.5*W[0]*Ef[j-1]) -
+                                freq_e2[i-1]*freq_e2[i-1] * (1.0/4.0*freq_e2[i-1]*freq_e2[i-1] -
+                                                             1.0/3.0*(Ef[j-1]+W[0])*freq_e2[i-1] + 0.5*W[0]*Ef[j-1]))
+                 /  (dEl*dEu*(Ef[j]-Ef[j-1]+1e-120)) ;
+               
+               temp_Iw[j-1] += (freq_e2[i]*freq_e2[i]     * (-1.0/4.0*freq_e2[i]*freq_e2[i] +
+                                                             1.0/3.0*(Ef[j]+W[0])*freq_e2[i] - 0.5*W[0]*Ef[j]) -
+                                freq_e2[i-1]*freq_e2[i-1] * (-1.0/4.0*freq_e2[i-1]*freq_e2[i-1] +
+                                                             1.0/3.0*(Ef[j]+W[0])*freq_e2[i-1] - 0.5*W[0]*Ef[j]))
+                 / (dEl*dEu*(Ef[j]-Ef[j-1]+1e-120)) ;
+               
+            } else {                  // between Ef[j] and Ef[j+1]
+               
+               temp_Iw[j+1] += (freq_e2[i]*freq_e2[i]     * (1.0/4.0*freq_e2[i]*freq_e2[i] -
+                                                             1.0/3.0*(Ef[j]+W[0])*freq_e2[i] + 1.0/2.0*W[0]*Ef[j]) -
+                                freq_e2[i-1]*freq_e2[i-1] * (1.0/4.0*freq_e2[i-1]*freq_e2[i-1] -
+                                                             1.0/3.0*(Ef[j]+W[0])*freq_e2[i-1] + 1.0/2.0*W[0]*Ef[j]))
+                 / (dEl*dEu*(Ef[j+1]-Ef[j]+1e-120)) ;
+               
+               temp_Iw[j] += (freq_e2[i]*freq_e2[i]       * (-1.0/4.0*freq_e2[i]*freq_e2[i] +
+                                                             1.0/3.0*(Ef[j+1]+W[0])*freq_e2[i] - 1.0/2.0*W[0]*Ef[j+1]) -
+                              freq_e2[i-1]*freq_e2[i-1]   * (-1.0/4.0*freq_e2[i-1]*freq_e2[i-1] +
+                                                             1.0/3.0*(Ef[j+1]+W[0])*freq_e2[i-1] -
+                                                             1.0/2.0*W[0]*Ef[j+1]))
+                 /  (dEl*dEu*(Ef[j+1]-Ef[j]+1e-120)) ;
             }
          }
          
          // 3
-         if (W[2]<=freq_e2[i-1] && freq_e2[i]<=W[3]) {	// on the downslope
+         if (W[2]<=freq_e2[i-1] && freq_e2[i]<=W[3]) {   // on the downslope
             // Gul = (W[3]-freq_e2[i-1])/(dEu*dEl) ;   Gul2 = (W[3]-freq_e2[i])/(dEu*dEl) ;
             if (freq_e2[i]<=Ef[j]) { // between Ef[j-1] and Ef[j]
-               temp_Iw[j] += (freq_e2[i]*freq_e2[i]*(-1.0/4.0*freq_e2[i]*freq_e2[i] +
-                                                     1.0/3.0*(Ef[j-1]+W[3])*freq_e2[i] - 1.0/2.0*W[3]*Ef[j-1]) -
-                              freq_e2[i-1]*freq_e2[i-1]*(-1.0/4.0*freq_e2[i-1]*freq_e2[i-1] +
-                                                         1.0/3.0*(Ef[j-1]+W[3])*freq_e2[i-1] - 1.0/2.0*W[3]*Ef[j-1])) / (dEl*dEu*(Ef[j]-Ef[j-1]+1e-120)) ;
-               temp_Iw[j-1] += (freq_e2[i]*freq_e2[i]*(1.0/4.0*freq_e2[i]*freq_e2[i] -
-                                                       1.0/3.0*(Ef[j]+W[3])*freq_e2[i] + 1.0/2.0*W[3]*Ef[j]) -
-                                freq_e2[i-1]*freq_e2[i-1]*(1.0/4.0*freq_e2[i-1]*freq_e2[i-1] -
-                                                           1.0/3.0*(Ef[j]+W[3])*freq_e2[i-1] + 1.0/2.0*W[3]*Ef[j])) / (dEl*dEu*(Ef[j]-Ef[j-1]+1e-120)) ;
-            } else {		  // between Ef[j] and Ef[j+1]
-               temp_Iw[j+1] += (freq_e2[i]*freq_e2[i]*(-1.0/4.0*freq_e2[i]*freq_e2[i] +
-                                                       1.0/3.0*(Ef[j]+W[3])*freq_e2[i] - 1.0/2.0*W[3]*Ef[j]) -
-                                freq_e2[i-1]*freq_e2[i-1]*(-1.0/4.0*freq_e2[i-1]*freq_e2[i-1] +
-                                                           1.0/3.0*(Ef[j]+W[3])*freq_e2[i-1] - 1.0/2.0*W[3]*Ef[j])) / (dEl*dEu*(Ef[j+1]-Ef[j]+1e-120)) ;
-               temp_Iw[j] += (freq_e2[i]*freq_e2[i]*(1.0/4.0*freq_e2[i]*freq_e2[i] -
-                                                     1.0/3.0*(Ef[j+1]+W[3])*freq_e2[i] + 1.0/2.0*W[3]*Ef[j+1]) -
-                              freq_e2[i-1]*freq_e2[i-1]*(1.0/4.0*freq_e2[i-1]*freq_e2[i-1] -
-                                                         1.0/3.0*(Ef[j+1]+W[3])*freq_e2[i-1] + 1.0/2.0*W[3]*Ef[j+1])) / (dEl*dEu*(Ef[j+1]-Ef[j]+1e-120)) ;
+               
+               temp_Iw[j] += (freq_e2[i]*freq_e2[i]     * (-1.0/4.0*freq_e2[i]*freq_e2[i] +
+                                                           1.0/3.0*(Ef[j-1]+W[3])*freq_e2[i] - 1.0/2.0*W[3]*Ef[j-1]) -
+                              freq_e2[i-1]*freq_e2[i-1] * (-1.0/4.0*freq_e2[i-1]*freq_e2[i-1] +
+                                                           1.0/3.0*(Ef[j-1]+W[3])*freq_e2[i-1] - 1.0/2.0*W[3]*Ef[j-1]))
+                 / (dEl*dEu*(Ef[j]-Ef[j-1]+1e-120)) ;
+               
+               temp_Iw[j-1] += (freq_e2[i]*freq_e2[i]     * (1.0/4.0*freq_e2[i]*freq_e2[i] -
+                                                             1.0/3.0*(Ef[j]+W[3])*freq_e2[i] + 1.0/2.0*W[3]*Ef[j]) -
+                                freq_e2[i-1]*freq_e2[i-1] * (1.0/4.0*freq_e2[i-1]*freq_e2[i-1] -
+                                                             1.0/3.0*(Ef[j]+W[3])*freq_e2[i-1] + 1.0/2.0*W[3]*Ef[j]))
+                 / (dEl*dEu*(Ef[j]-Ef[j-1]+1e-120)) ;
+               
+            } else {                  // between Ef[j] and Ef[j+1]
+               
+               temp_Iw[j+1] += (freq_e2[i]*freq_e2[i]     * (-1.0/4.0*freq_e2[i]*freq_e2[i] +
+                                                             1.0/3.0*(Ef[j]+W[3])*freq_e2[i] - 1.0/2.0*W[3]*Ef[j]) -
+                                freq_e2[i-1]*freq_e2[i-1] * (-1.0/4.0*freq_e2[i-1]*freq_e2[i-1] +
+                                                             1.0/3.0*(Ef[j]+W[3])*freq_e2[i-1] - 1.0/2.0*W[3]*Ef[j]))
+                 / (dEl*dEu*(Ef[j+1]-Ef[j]+1e-120)) ;
+               
+               temp_Iw[j] += (freq_e2[i]*freq_e2[i]     * (1.0/4.0*freq_e2[i]*freq_e2[i] -
+                                                           1.0/3.0*(Ef[j+1]+W[3])*freq_e2[i] + 1.0/2.0*W[3]*Ef[j+1]) -
+                              freq_e2[i-1]*freq_e2[i-1] * (1.0/4.0*freq_e2[i-1]*freq_e2[i-1] -
+                                                           1.0/3.0*(Ef[j+1]+W[3])*freq_e2[i-1] + 1.0/2.0*W[3]*Ef[j+1]))
+                 / (dEl*dEu*(Ef[j+1]-Ef[j]+1e-120)) ;
             }
          }
          
@@ -242,28 +315,41 @@ __kernel void PrepareIntegrationWeights(const int NFREQ,
       
       // intrabin absorptions: second term of Eq. 28
       // assume NABS piecewise linear and integrate the product of 2 or 3 linear functions...
-      
+                
 #if 1
       if (u==l+1) {
          j = 1 ;            
          while (Ef[j]<dEl && j<NFREQ) {
-            temp_Iw[j] += (Ef[j]*Ef[j]*(1.0/3.0*Ef[j]-1.0/2.0*Ef[j-1]-1.0/4.0*Ef[j]*Ef[j]/dEl+1.0/3.0*Ef[j-1]*Ef[j]/dEl) -
-                           Ef[j-1]*Ef[j-1]*(1.0/3.0*Ef[j-1]-1.0/2.0*Ef[j-1]-1.0/4.0*Ef[j-1]*Ef[j-1]/dEl+1.0/3.0*Ef[j-1]*Ef[j-1]/dEl)) /
-              (dEu*(Ef[j]-Ef[j-1]+1e-120)) ;
             
-            temp_Iw[j-1] += (Ef[j]*Ef[j]*(-1.0/3.0*Ef[j]+1.0/2.0*Ef[j]+1.0/4.0*Ef[j]*Ef[j]/dEl-1.0/3.0*Ef[j]*Ef[j]/dEl) -
-                             Ef[j-1]*Ef[j-1]*(-1.0/3.0*Ef[j-1]+1.0/2.0*Ef[j]+1.0/4.0*Ef[j-1]*Ef[j-1]/dEl-1.0/3.0*Ef[j]*Ef[j-1]/dEl)) /
-              (dEu*(Ef[j]-Ef[j-1]+1e-120)) ;               
+            temp_Iw[j] += (Ef[j]*Ef[j]*(1.0/3.0*Ef[j]-1.0/2.0*Ef[j-1]-1.0/4.0*Ef[j]*Ef[j]/dEl+1.0/3.0*Ef[j-1]*Ef[j]/dEl)
+                           -                                                       
+                           Ef[j-1]*Ef[j-1]*(1.0/3.0*Ef[j-1]-1.0/2.0*Ef[j-1]-1.0/4.0*Ef[j-1]*Ef[j-1]/dEl +
+                                            1.0/3.0*Ef[j-1]*Ef[j-1]/dEl))
+              / (dEu*(Ef[j]-Ef[j-1]+1e-120)) ;
+            
+            
+            temp_Iw[j-1] += (Ef[j]*Ef[j]*(-1.0/3.0*Ef[j]+1.0/2.0*Ef[j]+1.0/4.0*Ef[j]*Ef[j]/dEl-1.0/3.0*Ef[j]*Ef[j]/dEl)
+                             -
+                             Ef[j-1]*Ef[j-1] *
+                             (-1.0/3.0*Ef[j-1]+1.0/2.0*Ef[j]+1.0/4.0*Ef[j-1]*Ef[j-1]/dEl-1.0/3.0*Ef[j]*Ef[j-1]/dEl))
+              / (dEu*(Ef[j]-Ef[j-1]+1e-120)) ;
+            
             j++ ;
-         }            
+         }
+         
          if (j<NFREQ) {
+            
             temp_Iw[j] += (dEl*dEl*(1.0/3.0*dEl-1.0/2.0*Ef[j-1]-1.0/4.0*dEl+1.0/3.0*Ef[j-1]) -
-                           Ef[j-1]*Ef[j-1]*(1.0/3.0*Ef[j-1]-1.0/2.0*Ef[j-1]-1.0/4.0*Ef[j-1]*Ef[j-1]/dEl+1.0/3.0*Ef[j-1]*Ef[j-1]/dEl))/
-              (dEu*(Ef[j]-Ef[j-1]+1e-120)) ;
+                           Ef[j-1]*Ef[j-1]*
+                           (1.0/3.0*Ef[j-1]-1.0/2.0*Ef[j-1]-1.0/4.0*Ef[j-1]*Ef[j-1]/dEl
+                               +1.0/3.0*Ef[j-1]*Ef[j-1]/dEl))                             
+              /(dEu*(Ef[j]-Ef[j-1]+1e-120)) ;
             
             temp_Iw[j-1] += (dEl*dEl*(1.0/2.0*Ef[j]-1.0/3.0*dEl-1.0/3.0*Ef[j]+1.0/4.0*dEl) -
-                             Ef[j-1]*Ef[j-1]*(1.0/2.0*Ef[j]-1.0/3.0*Ef[j]-1.0/3.0*Ef[j]*Ef[j]/dEl+1.0/4.0*Ef[j]*Ef[j]/dEl))/
-              (dEu*(Ef[j]-Ef[j-1]+1e-120)) ;               
+                             Ef[j-1]*Ef[j-1]*
+                             (1.0/2.0*Ef[j]-1.0/3.0*Ef[j]-1.0/3.0*Ef[j]*Ef[j]/dEl+1.0/4.0*Ef[j]*Ef[j]/dEl))
+              / (dEu*(Ef[j]-Ef[j-1]+1e-120)) ;
+            
          }                        
       }
 #endif
@@ -370,34 +456,35 @@ __kernel void PrepareIntegrationWeightsEuler(const int NFREQ,
    if (l>=(NE-1)) return ;
    int index = 0 ;  
    double El, Eu, dEl, dEu, I, wi, coeff, alpha, beta, G1, G2 ;
-   float W1, W2, W3, W4, a, b ;
+   REAL   W1, W2, W3, W4, a, b ;
    int i, j ;
    __global float *temp_Iw  =  &(wrk[ l*NFREQ]) ;        // NFREQ
    __global float *Iw       =  &(IW[l*NE*NFREQ]) ;       // at most NE*NFREQ coeffs per lower bin l
-      
-
+   
+   
    El    =  0.5*(E[l]+E[l+1]) ;
    dEl   =  E[l+1] - E[l] ;
    
    for(int  u=l+1; u<NE; u++) {
       Eu    =  0.5*(E[u]+E[u+1]) ;  // E[NEPO] ... maximum index NE (ok, array has NEPO elements)
       dEu   =  E[u+1] - E[u] ;
-      W1    =  E[u]   - E[l+1] ;
-      W2    =  min( E[u]-E[l],  E[u+1]-E[l+1] ) ;
-      W3    =  max( E[u]-E[l],  E[u+1]-E[l+1] ) ;
-      W4    =  E[u+1] - E[l] ;
       
-      if ((Ef[0]>W4) || (Ef[NFREQ-1]<W1)) { // integration interval deos not overlap with simulated frequencies
+      W1    =  E[u] - E[l+1] ;                      // Eumin - Elmax
+      W2    =  min( E[u]-E[l],  E[u+1]-E[l+1] ) ;   // min(  Eumin-Elmin ,  Eumax-Elmax )
+      W3    =  max( E[u]-E[l],  E[u+1]-E[l+1] ) ;   // max(  Eumin-Elmin,   Eumax-Elmax )
+      W4    =  E[u+1] - E[l] ;                      // Eumax - Elmin
+      
+      if ((Ef[0]>W4) || (Ef[NFREQ-1]<W1)) { // integration interval does not overlap with simulated frequencies
          L1[l*NE+u] = -1   ;
          L2[l*NE+u] = -2 ;
          continue ;
       }  
       
-
       for (i=0; i<NFREQ; i++) temp_Iw[i] = 0.0f ;
       coeff = 1.0 / (Eu-El) / (FACTOR*PLANCK) ;
       
-      // find bin index i such that Ef[i] < W1 < Ef[i+1]
+      // Integration [W1, W4]
+      // W1 =>  find bin index i such that Ef[i] < W1 < Ef[i+1]
       i = 1 ;
       while ((i<(NFREQ-1)) && (Ef[i]<W1)) {
          i += 1 ;
@@ -406,24 +493,26 @@ __kernel void PrepareIntegrationWeightsEuler(const int NFREQ,
       
       
       // W1-W2 ==========================================================================================
-      a      =  clamp(W1, Ef[i], Ef[i+1]) ;
-      b      =  clamp(W2, a,     Ef[i+1]) ;
-      alpha  =  (a-Ef[i])/(Ef[i+1]-Ef[i]) ;
-      beta   =  (b-Ef[i])/(Ef[i+1]-Ef[i]) ;
+      // so far as the current bin [i, i+1] i concerned...
+      a      =  clamp(W1, (REAL)Ef[i], (REAL)Ef[i+1]) ;  // from W1 or from start of bin at Ef[i]
+      b      =  clamp(W2, (REAL)a,     (REAL)Ef[i+1]) ;  // to W2 or the end of bin Ef[i] = Ef[i+1]
+      alpha  =  (a-Ef[i])/(Ef[i+1]-Ef[i]) ;  // weight for Ef[i+1]
+      beta   =  (b-Ef[i])/(Ef[i+1]-Ef[i]) ;  // weight for Ef[i+1]
       // if we evaluate G and E at the end points of the interval and derive weights only for the
       // interpolation of nabs[i] values
+      //  G = (E-W1) / (dEu*dEl)
       G1             =  (a-W1)/dEl ;  // directly at the end points of the interval (if and when a, b != E[i])
-      G2             =  (b-W1)/dEl ;
-      temp_Iw[i]    +=  0.5*(b-a)*(G1*a*(1.0-alpha) + G2*b*(1.0-beta)) * coeff ;
-      temp_Iw[i+1]  +=  0.5*(b-a)*(G1*a*alpha       + G2*b*beta      ) * coeff ;
-      if (b<W2) {  // if step was till the end of a bin, we continue with the next bin
+      G2             =  (b-W1)/dEl ;  
+      temp_Iw[i]    +=  0.5*(b-a)*(G1*a*(1.0-alpha) + G2*b*(1.0-beta)) * coeff ;  // weight 1-alpha
+      temp_Iw[i+1]  +=  0.5*(b-a)*(G1*a*alpha       + G2*b*beta      ) * coeff ;  // weight 1-beta
+      if (b<W2) {  // if step was till the end of a bin i, we continue with the next bin
          i += 1 ;
       }
       while ((i<(NFREQ-1)) && (b<W2)) {
          a              =  b ;
          G1             =  G2 ;
-         b              =  min(W2, Ef[i+1]) ;
-         alpha          =  (a-Ef[i])/(Ef[i+1]-Ef[i]) ;
+         b              =  min(W2, (REAL)Ef[i+1]) ;
+         alpha          =  (a-Ef[i])/(Ef[i+1]-Ef[i]) ;  // weight for i+1
          beta           =  (b-Ef[i])/(Ef[i+1]-Ef[i]) ;
          G2             =  (b-W1)/dEl ;
          temp_Iw[i]    +=  0.5*(b-a)*(G1*a*(1.0-alpha) + G2*b*(1.0-beta))  * coeff ;
@@ -432,13 +521,12 @@ __kernel void PrepareIntegrationWeightsEuler(const int NFREQ,
             i += 1 ;
          }
       }
-
       
       // W2-W3 ==========================================================================================
       while ((i<(NFREQ-1)) && (b<W3)) {
          a             =  b ;
          G1            =  G2 ;
-         b             =  clamp(W3, a, Ef[i+1]) ;
+         b             =  clamp(W3, a, (REAL)Ef[i+1]) ;
          G2            =  min(dEl, dEu) / dEl ;
          alpha         =  (a-Ef[i])/(Ef[i+1]-Ef[i]) ;
          beta          =  (b-Ef[i])/(Ef[i+1]-Ef[i]) ;
@@ -449,15 +537,15 @@ __kernel void PrepareIntegrationWeightsEuler(const int NFREQ,
          }
       }
       
-      
       // W3-W4 ==========================================================================================
       while ((i<(NFREQ-1)) && (b<W4)) {
          a               =  b ;
          G1              =  G2 ;
-         b               =  clamp(W4, a, Ef[i+1]) ;
+         b               =  clamp(W4, a, (REAL)Ef[i+1]) ;
          alpha           =  (a-Ef[i])/(Ef[i+1]-Ef[i]) ;
          beta            =  (b-Ef[i])/(Ef[i+1]-Ef[i]) ;
-         G2              =  (W4-b)/dEl ;
+         // G2              =  (W4-b)/dEl ;
+         G2              =  (W4-0.5*b)/dEl ;
          temp_Iw[i]     +=  0.5*(b-a)*(G1*a*(1.0-alpha) + G2*b*(1.0-beta)) * coeff ;
          temp_Iw[i+1]   +=  0.5*(b-a)*(G1*a*alpha       + G2*b*beta      ) * coeff ;
          if (b<W4)  {  //  continue till the next bin
@@ -465,17 +553,16 @@ __kernel void PrepareIntegrationWeightsEuler(const int NFREQ,
          }
       }
       
-      
       // Intrabin ==========================================================================================
       if (1) {
-         // intrabin absorptions  --- not significant ??
+         // intrabin absorptions  --- not significant ?? .... no effect on the dN/dT 
          // Integral [0, dEl] of   (c/(eu-El)) (1-E/dEl)  Ef    dE
          if (u==(l+1)) {
             i     =  0 ;
             b     =  Ef[0] ;
             while ((i<(NFREQ-1)) && (Ef[i]<dEl)) {
                a             =  b ;
-               b             =  clamp((float)dEl, a, Ef[i+1]) ;
+               b             =  clamp((REAL)dEl, (REAL)a, (REAL)Ef[i+1]) ;
                alpha         =  (a-Ef[i])/(Ef[i+1]-Ef[i]) ;
                beta          =  (b-Ef[i])/(Ef[i+1]-Ef[i]) ;
                temp_Iw[i]   +=  0.5*(b-a)*((1.0-a/dEl)*a*(1.0-alpha) + (1.0-b/dEl)*b*(1.0-beta))  * coeff ;
@@ -484,15 +571,15 @@ __kernel void PrepareIntegrationWeightsEuler(const int NFREQ,
             }
          } // if l->l+1
       } // if - including intrabin
-
+      
       
       int first_non_zero = -1, last_non_zero=-2 ;
       for (i=0; i<NFREQ; i++) {
          if (temp_Iw[i]>0.0 && first_non_zero<0) first_non_zero = i  ;
          if (temp_Iw[i]>0.0) last_non_zero = i ;
       }
-      L1[l*NE+u] = first_non_zero ;
-      L2[l*NE+u] = last_non_zero ;
+      L1[l*NE+u] = first_non_zero ;  // first frequency
+      L2[l*NE+u] = last_non_zero ;   // last frequency
       for (i=L1[l*NE+u]; i<=L2[l*NE+u]; i++) {
          if (i<NFREQ)  Iw[index] = temp_Iw[i] ;  // * dEu/((Eu-El)* (FACTOR*PLANCK)) ;
          else          Iw[index] = 0.0 ;            
