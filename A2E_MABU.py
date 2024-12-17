@@ -115,7 +115,7 @@ for line in fp.readlines():
     if (s[0][0:6]=='optica'):
         dustname = s[1]
         tag      = open(dustname).readline().split()[0]
-        nstoch   = 999
+        nstoch   = 9999
         if (tag=='eqdust'):
             DUST.append(dustname)  # full filename for equilibrium dusts
             EQDUST.append(1)
@@ -127,7 +127,7 @@ for line in fp.readlines():
                     if (len(ss)>1):
                         if (ss[0]=='nstoch'):
                             nstoch = int(ss[1])
-                            if (nstoch<0): nstoch = 999
+                            if (nstoch<0): nstoch = 9999
             # drop "gs_" from the dust name -- the solver file will be named without "gs_"
             if (dustname[0:3]=='gs_'):                  
                 dustname = dustname[3:]
@@ -910,9 +910,7 @@ for IDUST in range(NDUST):
         # 2021-05-03  ---  if MAP_UM is given, use the first frequency ==> A2E.py will still solve emission
         #                  for either all the frequencies or just for a single frequency
         em_ifreq = -1    # A2E.py will solve all frequencies or only one frequency !
-        ### nstoch   = 999   # currently all bins as stochastically heated
         nstoch = NSTOCH[IDUST]
-        ## nstoch   = 0
         if (len(MAP_UM)>0): 
             em_ifreq = argmin(abs(um2f(MAP_UM[0])-FREQ))
         else:
@@ -930,10 +928,13 @@ for IDUST in range(NDUST):
 
                 
             print("=1========================================================================================")
-            print('      A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d %d'         % (DUST[IDUST], ASHAREDIR, ESHAREDIR, GPU_TAG, nstoch, em_ifreq))
+            print('      A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d %d'         %
+                  (DUST[IDUST], ASHAREDIR, ESHAREDIR, GPU_TAG, nstoch, em_ifreq))
             print("==========================================================================================")
-            fplog.write('      A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d %d\n' % (DUST[IDUST], ASHAREDIR, ESHAREDIR, GPU_TAG, nstoch, em_ifreq))
-            os.system('A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d  %d'          % (DUST[IDUST], ASHAREDIR, ESHAREDIR, GPU_TAG, nstoch, em_ifreq))
+            fplog.write('      A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d %d\n' %
+                        (DUST[IDUST], ASHAREDIR, ESHAREDIR, GPU_TAG, nstoch, em_ifreq))
+            os.system('A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d  %d'          %
+                      (DUST[IDUST], ASHAREDIR, ESHAREDIR, GPU_TAG, nstoch, em_ifreq))
             
             
             if (0): # @@@
@@ -946,21 +947,27 @@ for IDUST in range(NDUST):
             if (DUST[IDUST] in AALG.keys()):  # this dust will have polarised intensity
                 aalg_file  =  AALG[DUST[IDUST]]
                 print("=2========================================================================================")
-                print('      A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d %d %s'         % (DUST[IDUST], ASHAREDIR, ESHAREDIR, GPU_TAG, nstoch, em_ifreq, aalg_file))
+                print('      A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d %d %s'         %
+                      (DUST[IDUST], ASHAREDIR, ESHAREDIR, GPU_TAG, nstoch, em_ifreq, aalg_file))
                 print("==========================================================================================")
-                fplog.write('      A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d %d %s\n' % (DUST[IDUST], ASHAREDIR, ESHAREDIR, GPU_TAG, nstoch, em_ifreq, aalg_file))
+                fplog.write('      A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d %d %s\n' %
+                            (DUST[IDUST], ASHAREDIR, ESHAREDIR, GPU_TAG, nstoch, em_ifreq, aalg_file))
                 # aalg_file = a_alg[CELLS], minumum aligned grain size for each cell
                 #                  solver    absorbed        emitted         GPU_TAG   nstoch  IFREQ  aalg
-                os.system('A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f  %d      %d     %s' % (DUST[IDUST], ASHAREDIR, ESHAREDIR, GPU_TAG, nstoch, em_ifreq, aalg_file))
+                os.system('A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f  %d      %d     %s' %
+                          (DUST[IDUST], ASHAREDIR, ESHAREDIR, GPU_TAG, nstoch, em_ifreq, aalg_file))
                 # we have emission in %s/tmp.emitted, polarised emission %s/tmp.emitted.P
             else:  # without polarised emission
                 print()
                 print("=3========================================================================================")
-                print('      A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d %d'         % (DUST[IDUST], ASHAREDIR, ESHAREDIR, GPU_TAG, nstoch, em_ifreq))
+                print('      A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d %d'         %
+                      (DUST[IDUST], ASHAREDIR, ESHAREDIR, GPU_TAG, nstoch, em_ifreq))
                 print("==========================================================================================")
                 print()
-                fplog.write('      A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d %d\n' % (DUST[IDUST], ASHAREDIR, ESHAREDIR, GPU_TAG, nstoch, em_ifreq))
-                os.system('A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d %d'           % (DUST[IDUST], ASHAREDIR, ESHAREDIR, GPU_TAG, nstoch, em_ifreq))
+                fplog.write('      A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d %d\n' %
+                            (DUST[IDUST], ASHAREDIR, ESHAREDIR, GPU_TAG, nstoch, em_ifreq))
+                os.system('A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f %d %d'           %
+                          (DUST[IDUST], ASHAREDIR, ESHAREDIR, GPU_TAG, nstoch, em_ifreq))
 
                 
         #if (DUST[IDUST]=='CMCa'):
@@ -1032,7 +1039,8 @@ for IDUST in range(NDUST):
             print("IND_nnemit ", IND_nnemit)
             print("        ", f2um(FREQ[IND_nnemit]))
         #  NN fitting  absorbed*1e20/FF <--> emitted
-        NN_fit(nnmake, DUST[IDUST], CELLS, nnabs, nnemit, ASHAREDIR+'/nn.absorbed', ESHAREDIR+'/nn.emitted', nngpu=nngpu, nnnet=nnnet, nnmaxiter=nnmaxiter)
+        NN_fit(nnmake, DUST[IDUST], CELLS, nnabs, nnemit, ASHAREDIR+'/nn.absorbed', ESHAREDIR+'/nn.emitted', nngpu=nngpu,
+               nnnet=nnnet, nnmaxiter=nnmaxiter)
         # continue as without NN, tmp.emitted still has the emission for all frequencies
         
         

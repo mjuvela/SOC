@@ -11,7 +11,7 @@ __kernel void DoSolve(const      int     batch,   //  0  cells per call
                       __global   float   *AABS,   //  9  absorptions              [batch*NFREQ]
                       __global   float   *AEMIT,  // 10  emissions                [batch*NFREQ]
                       __global   float   *LL      // 11  A matrices               [NE*NE*batch] work space
-#if (WITH_X>0)
+#if (DUMP_TDUST>0)
                       ,__global  float   *XX      // 12  solution vectors         [NE*batch]
 #endif
                      ) {
@@ -98,7 +98,7 @@ __kernel void DoSolve(const      int     batch,   //  0  cells per call
       for(int i=Ibeg[j]; i<NE; i++)  I +=  EA[j*NE+i] * XL[i] ;
       EMIT[j] = I ; 
    }   
-#if (WITH_X>0)
+#if (DUMP_TDUST>0)
    for(int i=0; i<NE; i++)  XX[id*NE+i] = clamp(XL[i], 1.0e-35f, 10.0f) ;
 #endif
 }

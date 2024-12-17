@@ -211,8 +211,8 @@ for line in LINES:
     s = line.split()
     if (len(s)<1): continue
     if (s[0].find('noabsorbed')>=0): continue
-    if (s[0].find('libabs')>=0):  continue   # in ASOC_driver.py, simulation and library for all NFREQ frequencies !!!
-    if (s[0].find('libmaps')>=0): continue
+    if (s[0].find('libabs')>=0):     continue   # in ASOC_driver.py, simulation and library for all NFREQ frequencies !!!
+    if (s[0].find('libmaps')>=0):    continue
     if (s[0]!='optical'):
         fp.write(line)
 for idust in range(NDUST):

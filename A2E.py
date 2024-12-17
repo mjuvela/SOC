@@ -8,13 +8,14 @@ sys.path.append(INSTALL_DIR)
 
 import pyopencl as cl
 from   scipy.interpolate import interp1d
-from   matplotlib.pylab import *
-from   ASOC_aux import *
-
+import matplotlib.pylab as plt
+from   ASOC_aux import H_K, FACTOR
+import numpy as np
+import time
 
 """
-Usage:   
-            0       1         2          3     4        5       6 
+Usage:
+            0       1         2          3     4        5       6
     A2E.py  solver  absorbed  emitted  [ GPU [ nstoch [ IFREQ [ aalg ]]]]
 Parameters:
     solver    =  solver file writte by A2E_pre.py
@@ -27,7 +28,7 @@ Parameters:
     aalg      =  file [CELLS] cointaining the minimum aligned grain size
                  ==> if number of arguments is 6, write polarised emitted intensity
                  to a second file <emitted>.P
-        
+
 Using solver.data dumped from A2E.cpp or A2E_pre.py, convert absorbed.data to emitted.data.
 
 Notes 2019-10-28:
@@ -52,14 +53,14 @@ Notes 2019-10-28:
     A2E_pre.py:
         - dust data read using GSETDust
         - assumes that CRT_SFRAC in file contains GRAIN_DENSITY -- true, as read by GSETDust
-        
+
     We had a problem with the CRT_SFRAC normalisation.... but only because we manually dropped
     a number of size bins, thereby making sum(CRT_FRAC)<1.
     A2E.cpp explicitly normalised sum(CRT_SFRAC)==1, thereby avoiding the problem.
     Explicit normalisation is now also in DustLib.py, in GSETDust::Init.
 """
 
-        
+
 if (len(sys.argv)<4):
     print("\n  A2E.py  solver  absorbed  emitted  [ GPU [ nstoch [ IFREQ [ aalg ]]]]\n\n")
     sys.exit()
@@ -69,17 +70,17 @@ if (not(os.path.exists(sys.argv[1]))):
     print("The solver file %s does not exist !!!!!!!!!!!!!!!!!!!!!!!" % sys.argv[1])
     print("????????????????????????????????????????????????????????????????????????????????")
     sys.exit(1)
-    
+
 if (not(os.path.exists(sys.argv[2]))):
     print("????????????????????????????????????????????????????????????????????????????????")
     print("The file of absorptionse %s does not exist !!!!!!!!!!!!!!" % sys.argv[2])
     print("????????????????????????????????????????????????????????????????????????????????")
     sys.exit(1)
-    
+
 
 ICELL     =  0
 GPU       =  0.0      #     GPU.PLATFORM
-    
+
 total_A2E_time = time.time()
 
 
@@ -97,14 +98,20 @@ if (len(sys.argv)>4):
     GPU  = float(sys.argv[4])   #   a.b,  encoding CPU/GPU and platform
     if (len(sys.argv)>5):
         NSTOCH = int(sys.argv[5])
-        if (len(sys.argv)>6):         
+        if (len(sys.argv)>6):
             IFREQ = int(sys.argv[6])  #  if IFREQ>=0, save only emission at single frequency
             if (len(sys.argv)>7):     # we have parameters for calculation of polarised intensity
                 AALG = sys.argv[7]    #  file with ---  {CELLS} aalg[CELLS]
-# print("A2E.py with IFREQ=%d" % IFREQ)        
+# print("A2E.py with IFREQ=%d" % IFREQ)
 
 # magic number to dumptemperature distributions
-WITH_X    =  NSTOCH==999
+DUMP_TDUST  =  0
+try:
+    tmp = os.environ["DUMP_TDUST"]
+    if (tmp=="1"):
+        DUMP_TDUST = 1
+except:
+    pass
 
 # Read solver dump file
 SOLVER_NAME = sys.argv[1].replace('.solver', '')
@@ -113,11 +120,11 @@ NFREQ  =  np.fromfile(FP, np.int32, 1)[0]                                # NFREQ
 FREQ   =  np.fromfile(FP, np.float32, NFREQ)                             # FREQ[NFREQ]
 GD     =  np.fromfile(FP, np.float32, 1)[0]                              # GRAIN_DENSITY
 NSIZE  =  np.fromfile(FP, np.int32, 1)[0]                                # NSIZE
-ASIZE  =  np.fromfile(FP, np.float32, NSIZE)                             # ASIZE added to solver files 2021-04-26 
-S_FRAC =  clip(np.fromfile(FP, np.float32, NSIZE), 1.0e-32, 1.0e30)      # S_FRAC == DUST::S_FRAC / GRAIN_DENSITY; sum(S_FRAC)==1
+ASIZE  =  np.fromfile(FP, np.float32, NSIZE)                             # ASIZE added to solver files 2021-04-26
+S_FRAC =  np.clip(np.fromfile(FP, np.float32, NSIZE), 1.0e-32, 1.0e30)   # S_FRAC==DUST::S_FRAC/GRAIN_DENSITY; sum(S_FRAC)==1
 NE     =  np.fromfile(FP, np.int32, 1)[0]                                # NE
 SK_ABS =  np.fromfile(FP, np.float32, NSIZE*NFREQ).reshape(NSIZE, NFREQ) # SK_ABS[NSIZE, NFREQ]
-K_ABS  =  sum(SK_ABS, axis=0)
+K_ABS  =  np.sum(SK_ABS, axis=0)
 
 
 for s in sys.argv: sys.stdout.write("%s " % s)
@@ -138,7 +145,7 @@ else:
     FP_BY_SIZE = None
 
 
-    
+
 
 
 
@@ -147,24 +154,24 @@ else:
 fp     =  open(sys.argv[2], 'rb')      # absorbed
 CELLS, NFREQ = np.fromfile(fp, np.int32, 2)
 fp.close()
-    
+
 # Emitted has always 2 int header
 fp    =  open(sys.argv[3], 'wb')      # emitted
 if (IFREQ>=0): NOFREQ = 1
 else:          NOFREQ = NFREQ
-asarray([CELLS, NOFREQ], np.int32).tofile(fp)  # 2018-12-29 -- dropped levels from the python files !!
+np.asarray([CELLS, NOFREQ], np.int32).tofile(fp)  # 2018-12-29 -- dropped levels from the python files !!
 fp.close()
 if (AALG):
     fp    =  open(sys.argv[3]+'.P', 'wb')         # poalrised emission
-    asarray([CELLS, NOFREQ], np.int32).tofile(fp)
+    np.asarray([CELLS, NOFREQ], np.int32).tofile(fp)
     fp.close()
-    
+
 
 
 ABSORBED  = np.memmap(sys.argv[2], dtype='float32', mode='r+',  shape=(CELLS, NFREQ), offset=8)
 """
 2019-10-27
-Actual problem was in cpp version, the last two highest frequency getting large integration 
+Actual problem was in cpp version, the last two highest frequency getting large integration
 weight Iw values, one positive, one negative !!!!
 As long as this python version uses the copy of those formulas, it produces similar results to
 the cpp version ... but those might be incorrect/inaccurate depending on the absorptions in the
@@ -175,7 +182,7 @@ similar to those obtained by setting absorptions in the last two channels to zer
 two last channels were set to zero, the results of the python and cpp versions changed and were
 similar to the julia results.
    ==> it is very likely that the difference *is* produced by cpp/py handling those two frequency
-bins incorrectly  ==> one should use the julia version to create the solver file and also 
+bins incorrectly  ==> one should use the julia version to create the solver file and also
 implement in A2E_pre.py also that same version of Iw calculation !!!!
    The actual error depends on the significance of absorptions in the last two frequency bins
 but might also on how the enthalpy limits W1-W4 happend to reside in relation to those frequencies.
@@ -194,19 +201,19 @@ if (AALG!=None): # compute separate array for polarised intensity
     else:
         PEMITTED   = np.memmap(sys.argv[3]+'.P', dtype='float32', mode='r+',  shape=(CELLS, NFREQ), offset=8)
     PEMITTED[:,:] = 0.0
-    
+
 
 def PlanckSafe(f, T):  # Planck function
     # Add clip to get rid of warnings
     H_CC    =  7.372496678e-48    #   PLANCK/C_LIGHT^2
-    return 2.0*H_CC*f*f*f / (exp(np.clip(H_K*f/T,-100,+100))-1.0)
-    
+    return 2.0*H_CC*f*f*f / (np.exp(np.clip(H_K*f/T,-100,+100))-1.0)
+
 
 t0 = time.time()
 platform, device, context, queue = None, None, None, None
-LOCAL = 16 
-platforms = arange(5)
-if (fmod(GPU,1.0)>0):  platforms = [ int(10*fmod(GPU,1)), ] # platform is the number after decimal point
+LOCAL = 16
+platforms = np.arange(5)
+if (np.fmod(GPU,1.0)>0):  platforms = [ int(10*np.fmod(GPU,1)), ] # platform is the number after decimal point
 ok = False
 # print("--------------------------------------------------------------------------------")
 sdevice = ''
@@ -215,7 +222,7 @@ try:
 except:
     sdevice = ''
 
-# print("Selecting OpenCL device ...")    
+# print("Selecting OpenCL device ...")
 for itry in range(2):
     for iplatform in platforms:
         # print("platform %d" % iplatform)
@@ -233,7 +240,7 @@ for itry in range(2):
                         if (not(sdevice in device[0].name)):
                             device = []
                     # if (len(device)>0): print("device %s ok" % device[0].name)
-                    if (len(device)>0): 
+                    if (len(device)>0):
                         break
                 LOCAL    = 32  #  64 -> 32, TS test = no effect
             else:
@@ -242,7 +249,7 @@ for itry in range(2):
                     device = [ devices[idevice] ]
                     # print("---------------- CPU device name = ", device[0].name)
                     if ('Oclgrind' in device[0].name):
-                        device = []                        
+                        device = []
                     elif (sdevice!=''):
                         if (not(sdevice in device[0].name)): device = []
                     if (len(device)>0):
@@ -258,7 +265,7 @@ for itry in range(2):
             pass
     if (ok==True): break        # device found, break itry loop
     if (itry==0):
-        platforms = arange(4)   # perhaps user had wrong platform... try to find any working
+        platforms = np.arange(4)   # perhaps user had wrong platform... try to find any working
     else:
         # we tried to find a valid platform and failed
         print("*** ERROR:   A2E.py failed to find any working OpenCL platform !!!")
@@ -271,8 +278,8 @@ if (0):
     print(device)
     print("-"*80)
     # sys.exit()
-    
-    
+
+
 GLOBAL      =  max([BATCH,64*LOCAL])
 if (GLOBAL%64!=0):
     GLOBAL  = (GLOBAL/64+1)*64
@@ -280,8 +287,8 @@ context     =  cl.Context(device)
 queue       =  cl.CommandQueue(context)
 mf          =  cl.mem_flags
 NIP         =  30000  # number of interpolation points for the lookup tables (equilibrium dust)
-ARGS        =  "-D NE=%d -D LOCAL=%d -D NFREQ=%d -D CELLS=%d -D NIP=%d -D FACTOR=%.4ef -D WITH_X=%d" \
-               % (NE, LOCAL, NFREQ, CELLS, NIP, FACTOR, WITH_X)
+ARGS        =  "-D NE=%d -D LOCAL=%d -D NFREQ=%d -D CELLS=%d -D NIP=%d -D FACTOR=%.4ef -D DUMP_TDUST=%d" \
+               % (NE, LOCAL, NFREQ, CELLS, NIP, FACTOR, DUMP_TDUST)
 if (0): # no effect on run times
     ARGS   +=  "-cl-fast-relaxed-math -cl-single-precision-constant -cl-mad-enable"
 if (0):
@@ -310,41 +317,41 @@ if (NSTOCH<NSIZE):    # Prepare to solve equilibrium temperature emission for la
     FREQ_buf  =  cl.Buffer(context, mf.READ_ONLY,   4*NFREQ)
     # we can use EMIT_buf and ABS_buf, which are correct size for processing BATCH cells !!
     kernel_T  =  program.EqTemperature
-    #                               icell     kE          oplogkE     Emin       
+    #                               icell     kE          oplogkE     Emin
     kernel_T.set_scalar_arg_dtypes([np.int32, np.float32, np.float32, np.float32,
     #  FREQ   KABS    TTT    ABS    T      EMIT
     None,     None,   None,  None,  None,  None   ])
     cl.enqueue_copy(queue,   FREQ_buf,  FREQ)
-    EMIT      =  zeros((BATCH,NFREQ), np.float32)
-            
+    EMIT      =  np.zeros((BATCH,NFREQ), np.float32)
+
 DoSolve =  program.DoSolve
 
-if (WITH_X):
+if (DUMP_TDUST):
     X_buf     =  cl.Buffer(context, mf.WRITE_ONLY, BATCH*NE*4)    # no initial values -> write only
-    X         =  zeros((BATCH, NE), np.float32)
-    DoSolve.set_scalar_arg_dtypes([np.int32, np.int32, 
+    X         =  np.zeros((BATCH, NE), np.float32)
+    DoSolve.set_scalar_arg_dtypes([np.int32, np.int32,
     None, None, None, None, None, None, None, None, None, None, None ])
 else:
-    DoSolve.set_scalar_arg_dtypes([np.int32, np.int32, 
+    DoSolve.set_scalar_arg_dtypes([np.int32, np.int32,
     None, None, None, None, None, None, None, None, None, None ])
 
 
 # A2E.py strips the option of iterative solvers -- no worries about initial values.
-emit = zeros((BATCH, NFREQ), np.float32)
+emit = np.zeros((BATCH, NFREQ), np.float32)
 
-t0 = time.time()    
+t0 = time.time()
 
 
 def process_stochastic(isize, AALG):
     # If fpa is given, file contains  a_alg[cells] and we will update to
     # PEMITTED separately the polarised intensity
-    global SK_ABS, K_ABS, S_FRAC, GLOBAL, LOCAL, WITH_X, IFREQ
+    global SK_ABS, K_ABS, S_FRAC, GLOBAL, LOCAL, DUMP_TDUST, IFREQ
     global FP, CELLS, BATCH, ABSORBED, EMITTED, PEMITTED
     global AF_buf, Iw_buf, L1_buf, L2_buf, Tdown_buf, EA_buf, Ibeg_buf, ABS_buf
     # AF = fraction of absorptions due to the current size
-    AF    = asarray(SK_ABS[isize,:], float64) / asarray(K_ABS[:], float64)  # => E per grain
+    AF    = np.asarray(SK_ABS[isize,:], np.float64) / np.asarray(K_ABS[:], np.float64)  # => E per grain
     AF   /= S_FRAC[isize]*GD  # "invalid value encountered in divide"
-    AF    = asarray(np.clip(AF, 1.0e-32, 1.0e+100), np.float32)
+    AF    = np.asarray(np.clip(AF, 1.0e-32, 1.0e+100), np.float32)
     ##
     # The rest is for stochastically heated grains
     # print("AF %d,  AF_buf=NFREQ=%d " % (len(AF), NFREQ))
@@ -365,52 +372,52 @@ def process_stochastic(isize, AALG):
     cl.enqueue_copy(queue, Tdown_buf, Tdown)
     EA    = np.fromfile(FP, np.float32, NE*NFREQ)
     cl.enqueue_copy(queue, EA_buf,    EA)
-    Ibeg  = np.fromfile(FP, np.int32,   NFREQ)    
-    cl.enqueue_copy(queue, Ibeg_buf,  Ibeg)        
+    Ibeg  = np.fromfile(FP, np.int32,   NFREQ)
+    cl.enqueue_copy(queue, Ibeg_buf,  Ibeg)
     queue.finish()
     total_kernel_time = 0.0
     total_call_time   = time.time()
     # Loop over the cells, BATCH cells per kernel call
     t00 = time.time()
     fp_aalg = None
-    if (WITH_X):        
+    if (DUMP_TDUST):
         fpX = open('%s_size%03d.dump' % (SOLVER_NAME, isize), 'wb')
-        asarray([CELLS, NE], int32).tofile(fpX)
+        np.asarray([CELLS, NE], np.int32).tofile(fpX)
     if (AALG):  # grain alignment file give, calculate separately polarised intensity
         fp_aalg = open(AALG, 'rb')
-        cells   = fromfile(fp_aalg, int32, 1)
+        cells   = np.fromfile(fp_aalg, np.int32, 1)
         if (cells!=CELLS):
             print("process_stochastic: CELLS=%d, file %s has cells=%d" % (CELLS, AALG, cells))
             sys.exit()
-    for icell in range(0, CELLS, BATCH):        
+    for icell in range(0, CELLS, BATCH):
         batch = min([BATCH, CELLS-icell])  # actual number of cells
-        emit  = zeros((batch, NFREQ), float32)
+        emit  = np.zeros((batch, NFREQ), np.float32)
         cl.enqueue_copy(queue, ABS_buf,  ABSORBED[icell:(icell+BATCH),:])
-        queue.finish()      
+        queue.finish()
         t0000 = time.time()
-        if (WITH_X):
-            DoSolve(queue, [GLOBAL,], [LOCAL,], 
+        if (DUMP_TDUST):
+            DoSolve(queue, [GLOBAL,], [LOCAL,],
             batch,     isize,
-            Iw_buf,    L1_buf,  L2_buf,   Tdown_buf, EA_buf, 
+            Iw_buf,    L1_buf,  L2_buf,   Tdown_buf, EA_buf,
             Ibeg_buf,  AF_buf,  ABS_buf,  EMIT_buf,  A_buf,   X_buf)
             ###
-            cl.enqueue_copy(queue, X, X_buf)          
+            cl.enqueue_copy(queue, X, X_buf)
             X[0:batch,:].tofile(fpX)                #   X[BATCH, NE]
         else:
-            DoSolve(queue, [GLOBAL,], [LOCAL,], 
+            DoSolve(queue, [GLOBAL,], [LOCAL,],
             batch,     isize,
-            Iw_buf,    L1_buf,  L2_buf,   Tdown_buf, EA_buf, 
+            Iw_buf,    L1_buf,  L2_buf,   Tdown_buf, EA_buf,
             Ibeg_buf,  AF_buf,  ABS_buf,  EMIT_buf,  A_buf)
-        queue.finish()            
+        queue.finish()
         cl.enqueue_copy(queue, emit, EMIT_buf)  # batch*NFREQ
         total_kernel_time += time.time()-t0000
         if (IFREQ>=0):
             EMITTED[icell:(icell+batch), 0] += emit[:, IFREQ]   # emission at single frequency
         else:
             EMITTED[icell:(icell+batch), :] += emit[:, :    ]   # contribution of current dust, current size
-        if (AALG): 
+        if (AALG):
             # fraction of emit[BATCH, NFREQ] added also to PEMITTED
-            aalg  =  fromfile(fp_aalg, float32, batch)
+            aalg  =  np.fromfile(fp_aalg, np.float32, batch)
             # hard cutoff at given size
             m     =  nonzero(ASIZE[isize]>=aalg)   # cells where this grain size is aligned
             if (IFREQ>=0):  # single frequency in the output emission file
@@ -424,70 +431,67 @@ def process_stochastic(isize, AALG):
                     if (IFREQ>=0):  # single frequency in the output emission file
                         PEMITTED[icell+m[0], 0]    +=  w*emit[m[0], IFREQ]
                     else:
-                        PEMITTED[icell+m[0], :]    +=  w*emit[m[0],     :]            
+                        PEMITTED[icell+m[0], :]    +=  w*emit[m[0],     :]
         if (FP_BY_SIZE):
             if (IFREQ>=0):   emit[:, IFREQ].tofile(FP_BY_SIZE)
             else:            emit.tofile(FP_BY_SIZE)
-            
-            
+
+
     # print('   SIZE %2d/%2d  %.3e s/cell/size' % (isize, NSIZE, (time.time()-t00)/CELLS))
     if (AALG):
         fp_aalg.close()
-    if (WITH_X):
+    if (DUMP_TDUST):
         fpX.close()
-        
-    total_call_time = time.time() - total_call_time
-    print("process_stochastic: kernel %.4f, total %.4f" % (total_kernel_time, total_call_time))    
 
-    
+    total_call_time = time.time() - total_call_time
+    print("process_stochastic: kernel %.4f, total %.4f" % (total_kernel_time, total_call_time))
+
+
 """
 Try interleaving the:
  (1) file reading and AF calculation
- (2) kernel calls 
-... that was A2E_test.py => no improvement 
+ (2) kernel calls
+... that was A2E_test.py => no improvement
 """
 
-    
-for isize in range(NSIZE):        
 
-    
+for isize in range(NSIZE):
+
+
     if (isize>=NSTOCH):  # this size treated with equilibrium temperature approximation
         print("    isize = %d   equilibrium temperature" % isize)
         # AF = fraction of absorptions due to the current size
-        AF    = asarray(SK_ABS[isize,:], float64) / asarray(K_ABS[:], float64)  # => E per grain
+        AF    = np.asarray(SK_ABS[isize,:], np.float64) / np.asarray(K_ABS[:], np.float64)  # => E per grain
         AF   /= S_FRAC[isize]*GD  # "invalid value encountered in divide"
-        AF    = asarray(np.clip(AF, 1.0e-32, 1.0e+100), np.float32)
+        AF    = np.asarray(np.clip(AF, 1.0e-32, 1.0e+100), np.float32)
         if (0):
             mm = np.nonzero(~isfinite(AF))
-            AF[mm] = 1.0e-30        
+            AF[mm] = 1.0e-30
         if (S_FRAC[isize]<1.0e-30): continue  # empty size bin
         KABS   =  SK_ABS[isize,:] / (GD*S_FRAC[isize])
         # Prepare lookup table between energy and temperature
         t1     =  time.time()  # this is fast (<1sec) and can be done by host
         TSTEP  =  1600.0/NIP    # hardcoded upper limit 1600K for the maximum dust temperatures
-        TT     =  zeros(NIP, float64)
-        Eout   =  zeros(NIP, float64)
+        TT     =  np.zeros(NIP, np.float64)
+        Eout   =  np.zeros(NIP, np.float64)
         DF     =  FREQ[2:] - FREQ[:(-2)]  #  x[i+1] - x[i-1], lengths of intervals for Trapezoid rule
         for i in range(NIP):
             TT[i]   =  4.0 + TSTEP*i
-            TMP     =  FACTOR * KABS * PlanckSafe(asarray(FREQ, float64), TT[i]) # FACTOR * energy
+            TMP     =  FACTOR * KABS * PlanckSafe(np.asarray(FREQ, np.float64), TT[i]) # FACTOR * energy
             # Trapezoid integration TMP over FREQ frequencies
             res     =  TMP[0]*(FREQ[1]-FREQ[0]) + TMP[-1]*(FREQ[-1]-FREQ[-2]) # first and last step
-            res    +=  sum(TMP[1:(-1)]*DF)  # the sum over the rest of TMP*DF
+            res    +=  np.sum(TMP[1:(-1)]*DF)  # the sum over the rest of TMP*DF
             Eout[i] =  4.0*np.pi * 0.5 * res   # energy corresponding to TT[i]
         # Calculate the inverse mapping    Eout -> TTT
         Emin, Emax = Eout[0], Eout[NIP-1]*0.9999
         # E ~ T^4  => use logarithmic sampling
         kE     = (Emax/Emin)**(1.0/(NIP-1.0))  # E[i] = Emin*pow(kE, i)
-        oplgkE = 1.0/log10(kE)
+        oplgkE = 1.0/np.log10(kE)
         ip     = interp1d(Eout, TT)           # (linear) interpolation from energy to temperature
         # print('Eout = %10.3e ... %10.3e' % (Emin, Emax))
-        TTT    = asarray(ip(Emin * kE**arange(NIP)), np.float32)
+        TTT    = np.asarray(ip(Emin * kE**np.arange(NIP)), np.float32)
         # print("Mapping E -> T calculated on host: %.3f seconds" % (time.time()-t1))
-        if (0):
-            loglog(TTT, Emin * kE**arange(NIP), 'k-')
-            SHOW()
-            sys.exit()            
+        
         # Calculate temperatures on device
         #   ABSORBED * AF  integrated in the kernel over frequency -> Ein
         #   kernel will get ABSORBED, will do integration and table lookup to get T
@@ -495,46 +499,62 @@ for isize in range(NSIZE):
         #   the emission will be also calculated already for the BATCH cells
         cl.enqueue_copy(queue, TTT_buf,  TTT)    # NIP elements
         cl.enqueue_copy(queue, KABS_buf, KABS)   # NFREQ elements
-        T = zeros(BATCH, np.float32)        
+        T = np.zeros(BATCH, np.float32)
 
         if (AALG):
             fp_aalg = open(AALG, 'rb')
-            cells   = fromfile(fp_aalg, int32, 1)
+            cells   = np.fromfile(fp_aalg, np.int32, 1)
             if (cells!=CELLS):
                 print("A2E.py --- CELLS=%d, file %s has cells=%d??\n" % (CELLS, AALG, cells))
                 sys.exit()
-                
+
+        if (DUMP_TDUST):
+            Ttmp = np.zeros(BATCH, np.float32)
+            fpX  = open('%s_size%03d.dump' % (SOLVER_NAME, isize), 'wb')
+            np.asarray([CELLS,1], np.int32).tofile(fpX)
+
         for icell in range(0, CELLS, BATCH):     # T_buf is being updated for GLOBAL cells
             b       =  min(icell+BATCH, CELLS)
             batch   =  b-icell
             tmp_abs =  ABSORBED[icell:b, :]*AF
-            tmp_abs =  asarray(tmp_abs, np.float32)
+            tmp_abs =  np.asarray(tmp_abs, np.float32)
             cl.enqueue_copy(queue, ABS_buf,  tmp_abs)  # BATCH*NFREQ elements
             kernel_T(queue, [BATCH,], [LOCAL,], icell, kE, oplgkE, Emin,
             FREQ_buf, KABS_buf, TTT_buf, ABS_buf, T_buf, EMIT_buf)
+
+            if (DUMP_TDUST):
+                cl.enqueue_copy(queue, Ttmp, T_buf)
+                np.asarray(Ttmp[0:batch], np.float32).tofile(fpX)
+
             # Add emission to the final array
-            emit    =  zeros((batch, NFREQ), float32)
+            emit    =  np.zeros((batch, NFREQ), np.float32)
             cl.enqueue_copy(queue, emit, EMIT_buf) ;  # emission for <= GLOBAL cells
             if (IFREQ>=0):
                 EMITTED[icell:(icell+batch), 0]   +=  emit[:, IFREQ] * GD * S_FRAC[isize]
             else:
-                EMITTED[icell:(icell+batch), :]   +=  emit[:,   :  ] * GD * S_FRAC[isize]        
+                EMITTED[icell:(icell+batch), :]   +=  emit[:,   :  ] * GD * S_FRAC[isize]
+
             # polarised intensity
             if (AALG):
-                aalg = fromfile(fp_aalg, float32, batch)  # minimum aligned grain size
-                m    = nonzero(ASIZE[isize]>=aalg)        # grains isize aligned in these cells of current batch
+                aalg = np.fromfile(fp_aalg, np.float32, batch)  # minimum aligned grain size
+                m    = np.nonzero(ASIZE[isize]>=aalg)        # grains isize aligned in these cells of current batch
                 if (IFREQ>=0):
                     PEMITTED[icell+m[0], 0]  +=  emit[m[0], IFREQ] * GD * S_FRAC[isize]
                 else:
                     PEMITTED[icell+m[0], :]  +=  emit[m[0],   :  ] * GD * S_FRAC[isize]
+
+        if (DUMP_TDUST):
+            del Ttmp
+            fpX.close()
+
         if (AALG):
             fp_aalg.close()
         continue
-    
-    
+
+
     # The rest is for stochastically heated grains
     print("    isize = %d   stochastic heating" % isize)
-    
+
     process_stochastic(isize, AALG)  # AALG given, PEMITTED updated
     continue
 
@@ -542,9 +562,9 @@ for isize in range(NSIZE):
 
 
     # AF = fraction of absorptions due to the current size
-    AF    = asarray(SK_ABS[isize,:], float64) / asarray(K_ABS[:], float64)  # => E per grain
+    AF    = np.asarray(SK_ABS[isize,:], np.float64) / np.asarray(K_ABS[:], np.float64)  # => E per grain
     AF   /= S_FRAC[isize]*GD  # "invalid value encountered in divide"
-    AF    = asarray(np.clip(AF, 1.0e-32, 1.0e+100), np.float32)
+    AF    = np.asarray(np.clip(AF, 1.0e-32, 1.0e+100), np.float32)
     if (0):
         mm = np.nonzero(~isfinite(AF))
         AF[mm] = 1.0e-30
@@ -560,46 +580,46 @@ for isize in range(NSIZE):
     Tdown = np.fromfile(FP, np.float32, NE)
     cl.enqueue_copy(queue, Tdown_buf, Tdown)
     if (0):
-        Tdown = np.clip(Tdown, 1.0e-32, 1.0e30)    
+        Tdown = np.clip(Tdown, 1.0e-32, 1.0e30)
     EA    = np.fromfile(FP, np.float32, NE*NFREQ)
     cl.enqueue_copy(queue, EA_buf,    EA)
-    Ibeg  = np.fromfile(FP, np.int32,   NFREQ)    
-    cl.enqueue_copy(queue, Ibeg_buf,  Ibeg)        
+    Ibeg  = np.fromfile(FP, np.int32,   NFREQ)
+    cl.enqueue_copy(queue, Ibeg_buf,  Ibeg)
     queue.finish()
 
     if (AALG):
         fp_aalg = open(AALG, 'rb')
-        cells   = fromfile(fp_aalg, int32, 1)
+        cells   = np.fromfile(fp_aalg, np.int32, 1)
         if (cells!=CELLS):
             print("A2E.py --- CELLS=%d, file %s has cells=%d??\n" % (CELLS, AALG, cells))
             sys.exit()
-    
+
     # Loop over the cells, BATCH cells per kernel call
-    t00 = time.time()            
-    for icell in range(0, CELLS, BATCH):        
+    t00 = time.time()
+    for icell in range(0, CELLS, BATCH):
         batch = min([BATCH, CELLS-icell])  # actual number of cells
-        emit  = zeros((batch, NFREQ), float32)
+        emit  = np.zeros((batch, NFREQ),np.float32)
         cl.enqueue_copy(queue, ABS_buf,  ABSORBED[icell:(icell+BATCH),:])
-        queue.finish()            
-        if (WITH_X):
-            DoSolve(queue, [GLOBAL,], [LOCAL,], 
+        queue.finish()
+        if (DUMP_TDUST):
+            DoSolve(queue, [GLOBAL,], [LOCAL,],
             batch,     isize,
-            Iw_buf,    L1_buf,  L2_buf,   Tdown_buf, EA_buf, 
+            Iw_buf,    L1_buf,  L2_buf,   Tdown_buf, EA_buf,
             Ibeg_buf,  AF_buf,  ABS_buf,  EMIT_buf,  A_buf,   X_buf)
         else:
-            DoSolve(queue, [GLOBAL,], [LOCAL,], 
+            DoSolve(queue, [GLOBAL,], [LOCAL,],
             batch,     isize,
-            Iw_buf,    L1_buf,  L2_buf,   Tdown_buf, EA_buf, 
+            Iw_buf,    L1_buf,  L2_buf,   Tdown_buf, EA_buf,
             Ibeg_buf,  AF_buf,  ABS_buf,  EMIT_buf,  A_buf)
-        queue.finish()            
+        queue.finish()
         cl.enqueue_copy(queue, emit, EMIT_buf)  # batch*NFREQ
-        
+
         if (IFREQ>=0): # only one frequency saved
             EMITTED[icell:(icell+batch), 0] += emit[:, IFREQ]   # contribution of current dust, current size
         else:
             EMITTED[icell:(icell+batch), :] += emit[:, :]        # contribution of current dust, current size
         if (AALG):
-            aalg  =  fromfile(fp_aalg, float32, batch)
+            aalg  =  np.fromfile(fp_aalg,np.float32, batch)
             m     =  nonzero(ASIZE[isize]>=aalg)
             if (IFREQ>=0):
                 PEMITTED[icell+m[0], 0]  += emit[m[0], IFREQ]
@@ -608,11 +628,11 @@ for isize in range(NSIZE):
     if (AALG):
         fp_aalg.close()
 
-        
+
     print('   SIZE %2d/%2d  %.3e s/cell/size' % (isize, NSIZE, (time.time()-t00)/CELLS))
-        
-    
-    
+
+
+
 DT = time.time() - t0
 print('@@  A2E.py %.3f SECONDS' % DT)
 sys.stdout.flush()
@@ -626,7 +646,6 @@ print('  %4d  -- %.3e SECONDS PER CELL  -- %8.3f CELLS PER SECOND -- x %5.2f' % 
 if (FP_BY_SIZE):
     FP_BY_SIZE.close()
 
-    
-    
-print("TOTAL A2E TIME: %.4f" % (time.time()-total_A2E_time))
 
+
+print("TOTAL A2E TIME: %.4f" % (time.time()-total_A2E_time))
