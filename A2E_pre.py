@@ -249,14 +249,17 @@ for isize in range(NSIZE):
     cl.enqueue_copy(queue, E_buf, asarray(E, np.float32))  # E[NEPO]
     cl.enqueue_copy(queue, T_buf, asarray(T, np.float32))  # T[NEPO]  --- NEPO elements for interpolation in PrepareTdown
 
-    if (fpX): asarray(T, np.float32).tofile(fpX)   #   T[NEPO]
+    
+    if (fpX):
+        asarray(T, np.float32).tofile(fpX)   #   T[NEPO]
+        asarray(E, np.float32).tofile(fpX)   #   E[NEPO]
     
     # PrepareIntegrationWeights() kernel
     PrepareIw(queue, [GLOBAL,], [LOCAL,], NFREQ, NE, Ef_buf, E_buf, L1_buf, L2_buf, Iw_buf, wrk_buf, noIw_buf)
     cl.enqueue_copy(queue, Iw,   Iw_buf)
     cl.enqueue_copy(queue, noIw, noIw_buf)      # one worker = one l=lower bin ~ at most NE*NFREQ Iw weights
     sum_noIw = np.sum(noIw)                     # number of actual integration weights, for each l = lower bin
-    asarray([sum_noIw,], np.int32).tofile(fp)      # --> noIw
+    asarray([sum_noIw,], np.int32).tofile(fp)   # --> noIw
     for l in range(0, NE-1):                    # loop over lower bins = results of each kernel worker
         ind = l*NE*NFREQ                        # start of the array reserved for each l = each worker
         asarray(Iw[ind:(ind+noIw[l])], np.float32).tofile(fp)     # --> Iw, for l

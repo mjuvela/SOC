@@ -86,6 +86,7 @@ def f2um(freq):
 
 # for nnmake + nnthin,  ASOC_driver will call A2E_MABU with a smaller absorbed files
 nnabs, nnemit, nnmake, nnsolve, nnthin = [], [], '', '', 1
+nenumber = 256
 
 # Make a list of the dusts ... AND ABUNDANCE FILES, IF GIVEN
 DUST, ABUNDANCE, STOCHASTIC = [], [], []
@@ -121,6 +122,8 @@ for line in LINES:
         nnsolve = s[1]
     if (s[0].find('nnthin')>=0):       # A2E_driver has taken care of nnthin already
         nnthin = int(s[1])             # in absorbed.data
+    if (s[0].find('nenumber')>=0):
+        nenumber = int(s[1])   
      
 
 # for NN runs, get indices into FREQ for nnabs and for nnemit
@@ -200,7 +203,7 @@ for idust in range(NDUST):
         print('A2E_pre.py %s.dust freq.dat %s' % (dust, solver)) # gs_aSilx.dust -> aSilx.solver
         print("================================================================================")
         t0 = time.time()
-        os.system('A2E_pre.py %s.dust freq.dat %s' % (dust, solver))
+        os.system('A2E_pre.py %s.dust freq.dat %s %d' % (dust, solver, nenumber))
         # print('... A2E_pre.py %s.dust freq.dat %s ... %.2f seconds' % (dust, solver, time.time()-t0)) # gs_aSilx.dust -> aSilx.solver
 
         

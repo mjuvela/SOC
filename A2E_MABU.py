@@ -17,8 +17,12 @@ except:
 # temporary directories for absorption and emission files
 # emission files may be smaller (if output frequencies are limited)
 # and easier to put to ram disk
-ASHAREDIR = '/dev/shm'     # temporary directory for absorptions
-ESHAREDIR = '/dev/shm'     # temporary directory for emissions
+if (0):
+    ASHAREDIR = '/dev/shm'     # temporary directory for absorptions
+    ESHAREDIR = '/dev/shm'     # temporary directory for emissions
+else:
+    ASHAREDIR = './'     # temporary directory for absorptions
+    ESHAREDIR = './'     # temporary directory for emissions
 
 KEEP_COMPONENT_EMITTED = False  # leave emitted files on the disk for each dust component spearately
 USE_MMAP = False                # False, unless CELLS*NOFREQ does not fit to main memory !!
@@ -1131,7 +1135,7 @@ for IDUST in range(NDUST):
     # os.system('rm /dev/shm/tmp.absorbed /dev/shm/tmp.emitted')
 
     if (KEEP_COMPONENT_EMITTED):
-        os.system('mv -f %s  tmp.emitted.DUST_%02d' % (filename, IDUST))
+        os.system('mv -f %s  tmp.emitted.%s' % (filename, DUST[IDUST]))
     
 
 print("DONE !!!")
