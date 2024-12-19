@@ -213,6 +213,8 @@ if (LOCAL==12):
 PSPAC = Fix(USER.PSPAC, LOCAL)                     # any number ... but multiple of LOCAL
 BGPAC = Fix(Fix(USER.BGPAC, USER.AREA), LOCAL)     # multiple of AREA and LOCAL
 DFPAC = 0
+
+if (USER.CLPAC<1): USER.USE_EMWEIGHT=0
 if (USER.USE_EMWEIGHT>0):
     CLPAC = Fix(USER.CLPAC, LOCAL)                 # multiple of LOCAL
     if (USER.DFPAC>0):  # 2020-10-04  -- cannot have DFPAC<CELLS  ---  even when EMWEIGHT is used?
