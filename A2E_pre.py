@@ -40,7 +40,7 @@ Ef     =  PLANCK*FREQ
 NE     =  256
 if (len(sys.argv)>4):
     NE =  int(sys.argv[4])
-print("NE = %d" % NE)    
+
 NEPO   =  NE+1    # number of temperature bin boundaries
 LOCAL  =  4
 GLOBAL =  int((NE/64)+1)*64

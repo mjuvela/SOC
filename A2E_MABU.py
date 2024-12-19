@@ -559,8 +559,8 @@ def SolveEquilibriumDust(dust, f_absorbed, f_emitted, UM_MIN=0.0001, UM_MAX=9999
     ofreq  = FREQ[MOUT]
     nofreq = len(ofreq)
     # Solve emission one frequency at a time, all cells on a single call
-    print("      A2E_MABU.py  Solve emitted for nofreq = %d frequencies" % nofreq)
-    print(" UM = ", um2f(ofreq))
+    # print("      A2E_MABU.py  Solve emitted for nofreq = %d frequencies" % nofreq)
+    # print(" UM = ", um2f(ofreq))
     t0       =  time.time()
     if (USE_MMAP):
         np.asarray([CELLS, nofreq], np.int32).tofile(f_emitted)

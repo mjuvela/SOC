@@ -286,7 +286,7 @@ if (GLOBAL%64!=0):
 context     =  cl.Context(device)
 queue       =  cl.CommandQueue(context)
 mf          =  cl.mem_flags
-NIP         =  30000  # number of interpolation points for the lookup tables (equilibrium dust)
+NIP         =  15000  # number of interpolation points for the lookup tables (equilibrium dust)
 ARGS        =  "-D NE=%d -D LOCAL=%d -D NFREQ=%d -D CELLS=%d -D NIP=%d -D FACTOR=%.4ef -D DUMP_TDUST=%d" \
                % (NE, LOCAL, NFREQ, CELLS, NIP, FACTOR, DUMP_TDUST)
 if (0): # no effect on run times
