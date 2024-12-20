@@ -131,9 +131,6 @@ for s in sys.argv: sys.stdout.write("%s " % s)
 sys.stdout.write('\n')
 
 
-
-
-
 if (0):
     # SAVE EMISSION SIZE BY SIZE TO A SEPARATE EMISSION FILE [NSIZE, CELLS]
     # -- ASSUMING THAT THERE IS ONLY ONE OUTPUT FREQUENCY
@@ -143,9 +140,6 @@ if (0):
         time.sleep(1)
 else:
     FP_BY_SIZE = None
-
-
-
 
 
 

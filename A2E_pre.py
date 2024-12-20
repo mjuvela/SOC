@@ -62,22 +62,6 @@ def PlanckIntensity(f, T):
     return res
     
     
-# Define the temperature grid based on Tmin and Tmax values for the smallest
-# and largest sizes, given in the dust file as
-#      "tlimits   tmin  tmax1   tmax2"
-Tmin, Tmax1, Tmax2 = 4.0, 2500.0, 150.0
-dfile = sys.argv[1]
-for line in open(dfile, 'r').readlines():
-    s = line.split()
-    if (len(s)<4): continue
-    if (s[0].find('tlimit')==0):
-        Tmin, Tmax1, Tmax2 = float(s[1]), float(s[2]), float(s[3])
-# print("Temperature limits in %s: Tmin %.1f, Tmax1 %.1f, Tmax2 %.1f" % (dfile, Tmin, Tmax1, Tmax2))
-                
-# Calculate temperature limits for each size bin
-TMIN  = Tmin*np.ones(NSIZE, np.float32)
-TMAX  = np.logspace(log10(Tmax1), log10(Tmax2), NSIZE)       
-
 if (1): # 2019-10-25
     TMIN = DUST.TMIN
     TMAX = DUST.TMAX
@@ -173,14 +157,14 @@ cl.enqueue_copy(queue, Ef_buf,   asarray(Ef, np.float32))    # just for convenie
 PrepareTdown =  program.PrepareTdown
 PrepareTdown.set_scalar_arg_dtypes([np.int32, None, None, None, np.int32, None, None, None])
 
-# Regarding waves in dN/dT plots, these are equal
-if (0):
-    #DoNotUse()  # ... or only for truly stochastically heated grains!
+if (1):
+    #    after all, the most correct one
     PrepareIw    =  program.PrepareIntegrationWeights
 if (0):
-    #DoNotUse()  # ... or only for truly stochastically heated grains!
+    #    Gra-copy Sil **LOW**
     PrepareIw    =  program.PrepareIntegrationWeightsGD
-if (1):         # ... seems to work also for large equilibrium-temperature grains
+if (0):
+    #    PAH, Gra **high**
     PrepareIw    =  program.PrepareIntegrationWeightsEuler
     
 PrepareIw.set_scalar_arg_dtypes([np.int32, np.int32, None, None, None, None, None, None, None])
