@@ -158,13 +158,13 @@ PrepareTdown =  program.PrepareTdown
 PrepareTdown.set_scalar_arg_dtypes([np.int32, None, None, None, np.int32, None, None, None])
 
 if (1):
-    #    after all, the most correct one
+    #    first method
     PrepareIw    =  program.PrepareIntegrationWeights
 if (0):
-    #    Gra-copy Sil **LOW**
-    PrepareIw    =  program.PrepareIntegrationWeightsGD
+    #    almost identical to the above
+    PrepareIw    =  program.PrepareIntegrationWeightsGD    
 if (0):
-    #    PAH, Gra **high**
+    #    worse than the two above ???
     PrepareIw    =  program.PrepareIntegrationWeightsEuler
     
 PrepareIw.set_scalar_arg_dtypes([np.int32, np.int32, None, None, None, None, None, None, None])
@@ -202,18 +202,14 @@ for isize in range(NSIZE):
     # print("nsize [%3d] %9.4f um  E %.3e - %.3e  T = %5.2f - %7.2f K" % (isize, DUST.SIZE_A[isize]*1.0e4, emin, emax, TMIN[isize], TMAX[isize]))
 
 
-    # THIS AFFECTS WAVES IN dN/dT PLOTES
     if (0): #
-        # this smooths the waves
         E     =  exp(log(emin)+(arange(NEPO)/float(NE))*(log(emax)-log(emin))) # NEPO elements
         T     =  DUST.E2T(isize, E)       # NEPO !
     elif(1):
-        # 2024-12-10 used this version = waves
         # GSETDustO.cpp has --  e = TemperatureToEnergy_Int(s, TMIN[s]+(TMAX[s]-TMIN[s])* pow(ie/(NEPO-1.0), 2.0)) ;
         T   =  TMIN[isize]+(TMAX[isize]-TMIN[isize])* (arange(NEPO)/(NEPO-1.0))**2.0
         E   =  DUST.T2E(isize, T)
     elif(0):
-        # still waves
         T   =  np.logspace(log10(TMIN[isize]), log10(TMAX[isize]), NEPO)
         E   =  DUST.T2E(isize, T)
     else:
@@ -222,12 +218,6 @@ for isize in range(NSIZE):
 
 
 
-    # if (isize==5):
-    #     clf()
-    #     loglog(E, T/E**0.35, 'k+')
-    #     show(block=True)
-    #     sys.exit()
-    
         
     cl.enqueue_copy(queue, SKABS_buf, asarray((SKABS[isize,:]/DUST.CRT_SFRAC[isize]),np.float32))
     cl.enqueue_copy(queue, E_buf, asarray(E, np.float32))  # E[NEPO]
