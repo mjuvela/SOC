@@ -157,14 +157,20 @@ cl.enqueue_copy(queue, Ef_buf,   asarray(Ef, np.float32))    # just for convenie
 PrepareTdown =  program.PrepareTdown
 PrepareTdown.set_scalar_arg_dtypes([np.int32, None, None, None, np.int32, None, None, None])
 
-if (1):
-    #    first method
+PrepareTdown2 =  program.PrepareTdown2
+PrepareTdown2.set_scalar_arg_dtypes([np.int32, None,       None, np.int32, None, None, None])
+
+if (0):
+    #    first method -- not for large grains (some problem...)
     PrepareIw    =  program.PrepareIntegrationWeights
 if (0):
-    #    almost identical to the above
+    #    almost identical to the above (not for large grains)
     PrepareIw    =  program.PrepareIntegrationWeightsGD    
-if (0):
-    #    worse than the two above ???
+if (1):
+    #  2024-12-22 this is the only version one that works for large grains
+    #  and arbitrary (f, E) grids. The above two are ok but only if large grains
+    #  are handled via equilibrium temperature calculations (there
+    #  amin_equ=0.02 in write_A2E_dustfiles() worked ok with normal ISRF)
     PrepareIw    =  program.PrepareIntegrationWeightsEuler
     
 PrepareIw.set_scalar_arg_dtypes([np.int32, np.int32, None, None, None, None, None, None, None])
@@ -243,9 +249,15 @@ for isize in range(NSIZE):
     cl.enqueue_copy(queue, L,  L2_buf)
     L[0] = -2
     asarray(L, np.int32).tofile(fp)              # --> L2
-    
-    # PrepareTdown() kernel
-    PrepareTdown(queue, [GLOBAL,], [LOCAL,], NFREQ, FREQ_buf, Ef_buf, SKABS_buf, NE, E_buf, T_buf, Tdown_buf)
+
+    if (1):
+        # PrepareTdown() kernel
+        PrepareTdown(queue,  [GLOBAL,], [LOCAL,], NFREQ, FREQ_buf, Ef_buf, SKABS_buf, NE, E_buf, T_buf, Tdown_buf)
+    else:
+        # the same results ...
+        PrepareTdown2(queue, [GLOBAL,], [LOCAL,], NFREQ, FREQ_buf,         SKABS_buf, NE, E_buf, T_buf, Tdown_buf)
+
+        
     cl.enqueue_copy(queue, Tdown, Tdown_buf)    # --> Tdown
     ### Tdown /= DUST.CRT_SFRAC[isize]   # GRAIN_DENSITY already in CRT_SFRAC !! --- division already in SKABS
     Tdown.tofile(fp)

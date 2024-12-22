@@ -200,7 +200,7 @@ for idust in range(NDUST):
         if (os.stat(dust+'.dust').st_mtime<os.stat(solver).st_mtime): redo = False
     if (redo):
         print("================================================================================")
-        print('A2E_pre.py %s.dust freq.dat %s' % (dust, solver)) # gs_aSilx.dust -> aSilx.solver
+        print('A2E_pre.py %s.dust freq.dat %s %d' % (dust, solver, nenumber)) # gs_aSilx.dust -> aSilx.solver
         print("================================================================================")
         t0 = time.time()
         os.system('A2E_pre.py %s.dust freq.dat %s %d' % (dust, solver, nenumber))

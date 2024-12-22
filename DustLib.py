@@ -1956,13 +1956,16 @@ def write_DUSTEM_files(dustem_file='', DIR=''):
     
 
 
-def write_A2E_dustfiles(DNAME, DUST, NE_ARRAY=[], prefix='gs_'):
+def write_A2E_dustfiles(DNAME, DUST, NE_ARRAY=[], prefix='gs_', amin_equ=1e10):
     """
     Write the dust files for A2E  *** NATIVE CRT FORMAT ***
     Input:
-        DNAME = list of dust names (e.g. PAH0_MC10, aSilx)
-        DUST  = list of DustemDustO objects
-        NE    = list of number of energy bins, each dust
+        DNAME     = list of dust names (e.g. PAH0_MC10, aSilx)
+        DUST      = list of DustemDustO objects
+        NE_ARRAY  = list of number of energy bins, each dust
+        prefix    = file prefix, default is gs_
+        amin_equ  = minimum grain size [um] for which use eq. solver
+                    (sets nstoch)        
     Output:
         dust files sg<dustname>.dust
         and the corresponding files
@@ -1978,17 +1981,14 @@ def write_A2E_dustfiles(DNAME, DUST, NE_ARRAY=[], prefix='gs_'):
         dust  =  DUST[idust]
         NE    =  NE_ARRAY[idust]
         name  =  DNAME[idust]   # PAH0_MC10 etc.
-        fp = open('%s%s.dust' % (prefix, name), 'w')
-        fp.write('gsetdust\n')
-        fp.write('prefix     %s\n' % name)
-        #fp.write('eqlimit    0.0025\n')
-        #fp.write('binnings   1e-3 1e-1 1e0 1e1 1e2 1e4\n')
-        fp.write('nstoch     -1\n')
-        # fp.write('nstoch     999\n')
-        fp.write('optical    %s%s.opt\n' % (prefix, name))
-        fp.write('enthalpies %s%s.ent\n' % (prefix, name))
-        fp.write('sizes      %s%s.size\n' % (prefix, name))
-        fp.close()
+        # fp = open('%s%s.dust' % (prefix, name), 'w')
+        # fp.write('gsetdust\n')
+        # fp.write('prefix     %s\n' % name)
+        # fp.write('nstoch     -1\n')
+        # fp.write('optical    %s%s.opt\n' % (prefix, name))
+        # fp.write('enthalpies %s%s.ent\n' % (prefix, name))
+        # fp.write('sizes      %s%s.size\n' % (prefix, name))
+        # fp.close()
         
         
         # Copy the data on optical properties, original size and frequency grid
@@ -2028,18 +2028,21 @@ def write_A2E_dustfiles(DNAME, DUST, NE_ARRAY=[], prefix='gs_'):
         tmp  =  dust.CRT_SFRAC * 1.0
         tmp  =  tmp / sum(tmp)
 
-        # Tmax =  logspace(log10(2500.0), log10(150.0), dust.NSIZE)
-        # Tmax =  logspace(log10(2600.0), log10(200.0), dust.NSIZE)
-        # Tmax =  logspace(log10(3000.0), log10(200.0), dust.NSIZE)
         Tmax =  logspace(log10(2500.0), log10(150.0), dust.NSIZE)
 
         fp.write('#  SIZE [um]    S_FRAC      Tmin [K]   Tmax [K]\n')
+        nstoch = -1
+        tag    = 'SHG'
         for isize in range(dust.NSIZE):
             #  Tmin and Tmax not used by A2E ???
-            fp.write('  %12.5e %12.5e  %10.3e %10.3e\n' % 
-            (1.0e4*dust.SIZE_A[isize], tmp[isize], 4.0, Tmax[isize]))
+            if (nstoch<0):
+                if ((1.0e4*dust.SIZE_A[isize])>amin_equ):
+                    nstoch = isize # number of grain sizes treated as stochastic
+                    tag = 'EQ'
+            fp.write('  %12.5e %12.5e  %10.3e %10.3e  # %s\n' % 
+            (1.0e4*dust.SIZE_A[isize], tmp[isize], 4.0, Tmax[isize], tag))
         fp.close()
-
+        if (nstoch<0): nstoch = 999 ;  # no amin_equ or all grains smaller
         
         # Copy the data on enthalpies,  dust.CC = erg/K/cm3
         fp   = open('%s%s.ent' % (prefix, name), 'w')
@@ -2070,6 +2073,14 @@ def write_A2E_dustfiles(DNAME, DUST, NE_ARRAY=[], prefix='gs_'):
             fp.write('\n')
         fp.close()
     
+        fp = open('%s%s.dust' % (prefix, name), 'w')
+        fp.write('gsetdust\n')
+        fp.write('prefix     %s\n' % name)
+        fp.write('nstoch     %d\n' % nstoch)
+        fp.write('optical    %s%s.opt\n' % (prefix, name))
+        fp.write('enthalpies %s%s.ent\n' % (prefix, name))
+        fp.write('sizes      %s%s.size\n' % (prefix, name))
+        fp.close()
 
         
         
