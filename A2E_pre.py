@@ -171,7 +171,7 @@ if (1):
     #  and arbitrary (f, E) grids. The above two are ok but only if large grains
     #  are handled via equilibrium temperature calculations (there
     #  amin_equ=0.02 in write_A2E_dustfiles() worked ok with normal ISRF)
-    PrepareIw    =  program.PrepareIntegrationWeightsEuler
+    PrepareIw    =  program.PrepareIntegrationWeightsTrapezoid
     
 PrepareIw.set_scalar_arg_dtypes([np.int32, np.int32, None, None, None, None, None, None, None])
 

@@ -99,7 +99,7 @@ __kernel void PrepareTdown(const    int     NFREQ,       // number of frequencie
          x    =  Interpolate(NFREQ, FREQ, SKABS, ee1/PLANCK) ; // SKabs_Int(size, ee1/Planck)
          yy1  =  ee1*ee1*ee1 * x / (exp(ee1/(BOLTZMANN*Tu))-1.0) ;
          // now  [ee0, ee1] with values [yy0, yy1]
-         I   +=  0.5*(ee1-ee0)*(yy1+yy0) ;                     // Euler integration of the substep
+         I   +=  0.5*(ee1-ee0)*(yy1+yy0) ;                     // Trapezoid integration of the substep
          ee0  =  ee1 ;   // move to next start position
          yy0  =  yy1 ;
       }
@@ -440,18 +440,20 @@ __kernel void PrepareIntegrationWeightsGD(const int NFREQ,
 
 
 
-__kernel void PrepareIntegrationWeightsEuler(const int NFREQ,                                        
-                                             const int NE,
-                                             __global float *Ef,         // Ef[NFREQ], FREQ*PLANCK
-                                             __global float *E,          // E[NEPO], energy grid for the current size
-                                             __global int   *L1,         // L1[NE*NE]
-                                             __global int   *L2,         // L2[NE*NE]
-                                             __global float *IW ,        // Iw[ << 0.5*NE*NE*NFREQ]
-                                             __global float *wrk,        // NE*NFREQ + NE*(NFREQ+4)
-                                             __global int   *noIw        // noIw for each l = lower bin
-                                            ) 
+__kernel void PrepareIntegrationWeightsTrapezoid(const int NFREQ,                                        
+																 const int NE,
+																 __global float *Ef,         // Ef[NFREQ], FREQ*PLANCK
+																 __global float *E,          // E[NEPO], energy grid for the current size
+																 __global int   *L1,         // L1[NE*NE]
+																 __global int   *L2,         // L2[NE*NE]
+																 __global float *IW ,        // Iw[ << 0.5*NE*NE*NFREQ]
+																 __global float *wrk,        // NE*NFREQ + NE*(NFREQ+4)
+																 __global int   *noIw        // noIw for each l = lower bin
+																 ) 
 {
-   // Integration weights using the Guhathagurta & Draine formulas
+   // Integration weights using Draine & Li (2001) formula (15).
+	// Trapezoid integration is justified by the non-equidistant energy grid and the Monte Carlo noise
+	// (in intensities) that makes higher-order methods less reliable.
    const int l = get_global_id(0) ; // Each work item works on different "l", initial enthalpy bin.
    if (l>=(NE-1)) return ;
    int index = 0 ;  
