@@ -160,12 +160,13 @@ PrepareTdown.set_scalar_arg_dtypes([np.int32, None, None, None, np.int32, None, 
 PrepareTdown2 =  program.PrepareTdown2
 PrepareTdown2.set_scalar_arg_dtypes([np.int32, None,       None, np.int32, None, None, None])
 
-if (0):
-    #    first method -- not for large grains (some problem...)
-    PrepareIw    =  program.PrepareIntegrationWeights
-if (0):
-    #    almost identical to the above (not for large grains)
-    PrepareIw    =  program.PrepareIntegrationWeightsGD    
+# if (0):
+#     #    first method -- not for large grains (some problem...)
+#     PrepareIw    =  program.PrepareIntegrationWeights
+# if (0):
+#     #    almost identical to the above (not for large grains)
+#     PrepareIw    =  program.PrepareIntegrationWeightsGD
+
 if (1):
     #  2024-12-22 this is the only version one that works for large grains
     #  and arbitrary (f, E) grids. The above two are ok but only if large grains

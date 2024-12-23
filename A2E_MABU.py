@@ -24,7 +24,7 @@ else:
     ASHAREDIR = './'     # temporary directory for absorptions
     ESHAREDIR = './'     # temporary directory for emissions
 
-KEEP_COMPONENT_EMITTED = False  # leave emitted files on the disk for each dust component spearately
+KEEP_COMPONENT_EMITTED = 0      # leave emitted files on the disk for each dust component spearately
 USE_MMAP = False                # False, unless CELLS*NOFREQ does not fit to main memory !!
 
 if (len(sys.argv)<2):

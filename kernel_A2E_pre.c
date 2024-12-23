@@ -4,17 +4,16 @@
 #define C_LIGHT   (2.99792e+10f)
 // #define SCALE     (1.0e20f)  --- replaced by FACTOR 
 
-// float vs. double, no effect on dN/dT waves
 #define REAL double
+// #define REAL float
 
 
 #if 1
 
-// Interpolation has no effect in dN/dT waves
 
 float Interpolate(const int n, const __global float *x, const __global float *y, const float x0) {
    // Return linear-interpolated value based on (x,y) vectors.
-   if (x0<=x[0  ])  return y[0] ;    // no extrapolation !
+   if (x0<=x[0  ])  return y[0] ;      // no extrapolation !
    if (x0>=x[n-1])  return y[n-1] ;
    int a=0, c=n-1, b ;
    while((c-a)>4) {
@@ -54,12 +53,14 @@ float Interpolate(const int n, const __global float *x, const __global float *y,
 #endif
 
 
-// SS... no effect on dN/dT waves
+// SS sub-stepping... no effect on anything?
 #define SS  8
+
+
 
 __kernel void PrepareTdown(const    int     NFREQ,       // number of frequencies in the grid
                            __global float  *FREQ,        // FREQ[NFREQ], basic frequency grid
-                           __global float  *Ef,          // Ef[NFREQ]
+                           __global float  *Ef,          // Ef[NFREQ]  == PLANCK*FREQ
                            __global float  *SKABS,       // SKABS[NFREQ], corresponding pi*a^2*Q  (current size)
                            const    int     NE,          // number of energy bins
                            __global float  *E,           // E[NEPO], energy grid for the current size
@@ -74,9 +75,9 @@ __kernel void PrepareTdown(const    int     NFREQ,       // number of frequencie
    //  We replaced SKabs_Int() with SKabs() so final division with GD*S_FRAC is here removed!
    //  One work item per upper level u... probably efficient only on CPU
    //    T_lu  =  0,   l<u-1
-   //    T_lu  ~  1/(Eu-El) * (8*pi/(h^3*c^2))  *   Integral   E^3 C(E)  / (exp(E/kT)-1)  dE
+   //    T_lu  ~  1/(Eu-El) * (8*pi/(h^3*c^2))  *   Integral   E^3 C(E)  / (exp(E//kTu)-1)  dE
    //    below
-   //    T_lu  ~  1/(Eu-El) * (8*pi/(c^3*h**2)) *   SUM        E^3 C(E)  / (exp(E(kT)-1)
+   //    T_lu  ~  1/(Eu-El) * (8*pi/(c^3*h**2)) *   SUM        E^3 C(E)  / (exp(E/(kTu)-1)
    const int u = 1 + get_global_id(0) ;  //  u = 1,..., NE-1
    if (u>=NE) return ;   
    if (u==1) Tdown[0]  = 0.0 ;
@@ -86,43 +87,101 @@ __kernel void PrepareTdown(const    int     NFREQ,       // number of frequencie
    El   =  0.5*(E[u-1]+E[u  ]) ;          // at least u-1 = 1-1 = 0
    Tu   =  Interpolate(NE+1, E, T, Eu) ;  // would be better if interpolated on log-log scale ?
    ee0  =  0.0 ;
-   yy0  =  0.0 ;         
+   yy0  =  0.0 ;
    i    =  0 ;            
    I    =  0.0 ;
-   while ((i<(NFREQ-1)) && Ef[i+1]<Eu) {  // integrate full bins
-      ee0  =  Ef[i] ;
+   // integration is over frequency grid ->  energies  Ef[NFREQ]
+   // integration is from 0 to Eu
+   while ((i<(NFREQ-1)) && Ef[i+1]<Eu) {  // integrate full bins  [Ef[i], Ef[i+1]], for Eu < Ef[i+1]
+      ee0  =  Ef[i] ;                     // integration starts at Ef[0]
       // In A2ELIB, SKabs_Int() uses Interpolate0 for frequency interp... which is linear interpolation
-      x    =  Interpolate(NFREQ, FREQ, SKABS, ee0/PLANCK)    ;  // this apparently fine on linear scale...
+      x    =  Interpolate(NFREQ, FREQ, SKABS, ee0/PLANCK)    ;  // SKABS, this apparently fine on linear scale...
       yy0  =  ee0*ee0*ee0* x /(exp(ee0/(BOLTZMANN*Tu))-1.0) ;   // E^3 Cabs / (exp(E/(kT))-1) = integrand
       for(int j=0; j<SS; j++) {                                 // substepping
          ee1  =  Ef[i] + (j+1)*(Ef[i+1]-Ef[i])/SS ;
          x    =  Interpolate(NFREQ, FREQ, SKABS, ee1/PLANCK) ; // SKabs_Int(size, ee1/Planck)
          yy1  =  ee1*ee1*ee1 * x / (exp(ee1/(BOLTZMANN*Tu))-1.0) ;
-         // now  [ee0, ee1] with values [yy0, yy1]
-         I   +=  0.5*(ee1-ee0)*(yy1+yy0) ;                     // Trapezoid integration of the substep
+         // now integrate  [ee0, ee1]  with values  [yy0, yy1]
+         I   +=  0.5*(ee1-ee0)*(yy1+yy0) ;                     // trapezoid integration of the substep
          ee0  =  ee1 ;   // move to next start position
          yy0  =  yy1 ;
       }
       i++ ;
       // if (i>(NFREQ-2)) break ;  // [NFREQ-2] +1 = NFREQ-1 on next loop ... still ok
    }
-   // Now integration completed up to Ef[i],   ee0 == EF[i]
-   if (Eu<Ef[NFREQ-1]) {                     // last partial step [Ef[i], Eu]
+   // Now integration completed up to Ef[i],   ee0 == EF[i], integrate final step [Ef[i], Eu]
+   // if (Eu<Ef[NFREQ-1]) {                    // last partial step [Ef[i], Eu]
+   if (i<(NFREQ-1)) {                    // last partial step [Ef[i], Eu]
       for (int j=0; j<SS; j++) {            // substepping over 
-         ee1  =  Ef[i]+(j+1)*(Eu-Ef[i])/SS  ;
+         ee1  =  Ef[i] + (j+1)*(Eu-Ef[i])/SS  ;
          // yy1  =  ee1*ee1*ee1*SKABS(size,ee1/PLANCK)/(exp(ee1/(BOLZMANN*Tu))-1.0) ;
-         x    =  Interpolate(NFREQ, FREQ, SKABS, ee1/PLANCK) ;  // SKabs_Int(size, ee1/PLANCK) => Cabs
+         x    =  Interpolate(NFREQ, FREQ, SKABS, ee1/PLANCK) ;  // SKabs_Int(size, ee1/PLANCK) => Cabs(ee1)
          yy1  =  ee1*ee1*ee1 * x / (exp(ee1/(BOLTZMANN*Tu))-1.0) ;
          I   +=  0.5*(ee1-ee0)*(yy1+yy0) ;
          ee0  =  ee1 ;
          yy0  =  yy1 ;         
       }
-   } 
+   }
    // I *= 8.0*PI/((Eu-El)*C_LIGHT*C_LIGHT*PLANCK*PLANCK*PLANCK) ;
    I   *=  9.612370e+58 / (Eu-El) ;   //  ==    8*pi / (c^2 h^3)
-   // printf("%12.4e\n", I) ;
    Tdown[u] = I ;
+   // printf("%12.4e\n", I) ;
 }
+
+
+
+
+
+
+__kernel void PrepareTdown2(const    int     NFREQ,       // number of frequencies in the grid
+                            __global float  *FREQ,        // frequencies to interpolate SKABS
+                            __global float  *SKABS,       // SKABS[NFREQ], corresponding pi*a^2*Q  (current size)
+                            const    int     NE,          // number of energy bins
+                            __global float  *E,           // E[NEPO], energy grid for the current size
+                            __global float  *T,           // T[NEPO], corresponding grain temperatures
+                            __global float  *Tdown        // Tdown[NE] current size
+                            )
+{
+   // *** RESULT SAME AS WITH PrepareTdown2() BUT LESS DEPENDENT ON E AND FREQ GRIDS ***  
+   //  Prepare vector TDOWN = transition matrix elements for transitions u -> u-1,
+   //  D&L01, Eq. 41, Thermal continous approximation.
+   //  Needs SKabs_Int(f) =  SKabs(SIZE[size], freq) * GRAIN_DENSITY * S_FRAC[size]
+   //                     =  [ PI*a^2 * Q ]  *  [ GD*S_FRAC ],  with interpolated Q
+   //  We replaced SKabs_Int() with SKabs() so final division with GD*S_FRAC is here removed!
+   //  One work item per upper level u... probably efficient only on CPU
+   //    T_lu  =  0,   l<u-1
+   //    T_lu  ~  1/(Eu-El) * (8*pi/(h^3*c^2))  *   Integral   E^3 C(E)  / (exp(E//kTu)-1)  dE
+   //    below
+   //    T_lu  ~  1/(Eu-El) * (8*pi/(c^3*h**2)) *   SUM        E^3 C(E)  / (exp(E/(kTu)-1)
+   const int u = 1 + get_global_id(0) ;  //  u = 1,..., NE-1
+   if (u>=NE) return ;  // last bin u=NE-1, last energy E[u+1] = E[NE], E having NEPO elements
+   if (u==1) Tdown[0]  = 0.0 ;
+   double Tu, I, ee0, ee1, yy0, yy1, Eu, El, x, Emin, Emax ;
+   Eu   =  0.5*(E[u  ]+E[u+1])   ;            // centre of upper bin u
+   El   =  0.5*(E[u-1]+E[u  ])  ;             // centre of lower bin l = u-1
+   Tu   =  Interpolate(NE+1, E, T, Eu) ; 
+   I    =  0.0 ;
+   // Integrate using 1000 points from FREQ[0] to Eu
+   Emin =  FREQ[0]*PLANCK ;
+   Emax =  min(Eu, (double)(FREQ[NFREQ-1]*PLANCK)) ;  
+   for(int i=0; i<2000; i++) {
+      // linear or logarithmic grid... does not matter
+      ee0  =  Emin +  i   *(Emax-Emin) / 2000.0 ;
+      ee1  =  Emin + (i+1)*(Emax-Emin) / 2000.0 ;
+      x    =  Interpolate(NFREQ, FREQ, SKABS, ee0/PLANCK)    ;   // SKABS at start of the bin
+      yy0  =  ee0*ee0*ee0* x / (exp(ee0/(BOLTZMANN*Tu))-1.0) ;   // E^3 Cabs / (exp(E/(kT))-1) = integrand
+      x    =  Interpolate(NFREQ, FREQ, SKABS, ee1/PLANCK)    ;   // SKABS at start of the bin
+      yy1  =  ee1*ee1*ee1* x / (exp(ee1/(BOLTZMANN*Tu))-1.0) ;    
+      I   +=  0.5*(ee1-ee0)*(yy1+yy0) ;                          // trapezoid integration of the substep
+   }
+   // I *= 8.0*PI/((Eu-El)*C_LIGHT*C_LIGHT*PLANCK*PLANCK*PLANCK) ;
+   I   *=  9.612370e+58 / (Eu-El) ;   //  ==    8*pi / (c^2 h^3)
+   Tdown[u] = I ;
+   // printf("%12.4e\n", I) ;
+}
+
+
+
 
 
 
@@ -171,25 +230,21 @@ __kernel void PrepareIntegrationWeights(const int NFREQ,
    El  =  0.5*(E[l]+E[l+1]) ;
    
    for(int  u=l+1; u<NE; u++) {      
+
       Eu    =  0.5*(E[u]+E[u+1]) ;
       dEu   =  E[u+1]-E[u] ;
+
       W[0]  =  E[u]-E[l+1] ;
       W[1]  =  min( E[u]-E[l],  E[u+1]-E[l+1] ) ;
       W[2]  =  max( E[u]-E[l],  E[u+1]-E[l+1] ) ;
       W[3]  =  E[u+1] - E[l] ;         
-      
-#if 0
-      if (l==0) {
-         printf("u=%3d  W %12.4e %12.4e %12.4e %12.4e\n", u+1, W[0], W[1], W[2], W[3]) ;
-      }
-#endif
-      
       
       if ((Ef[0]>W[3]) || (Ef[NFREQ-1]<W[0])) {
          L1[l*NE+u] = -1 ;
          L2[l*NE+u] = -2 ;
          continue ;
       }         
+
       i=0;  j=0;  k=0;
       while (i<NFREQ+4) {  // after this freq_e2 contains all the breakpoints of the integrand: NFREQ from freq grids + 4 from bin edges
          if (j<NFREQ && k<4) {
@@ -205,12 +260,16 @@ __kernel void PrepareIntegrationWeights(const int NFREQ,
             }
          }
          i++ ;
-      }         
+      }
+
       for (i=0; i<NFREQ; i++) temp_Iw[i] = 0.0f ;      
       // done: integrate Gul*nabs*E over [freq_e2[i-1], freq_e2[i]]
       // Gul, NABS and E are all linear functions on the interval,
       // so the integrand is (at most) third degree polynomial
-      for (i=1; i<NFREQ+4; i++) {         
+
+      
+      for (i=1; i<NFREQ+4; i++) {
+         
          if (freq_e2[i-1]>Ef[NFREQ-1] || freq_e2[i-1]>=W[3]) break ;     // Ef[i] = photon energy at freq[i]
          if (freq_e2[i]<W[0] || freq_e2[i-1]<=Ef[0]) continue ;            
          j=0;
@@ -441,19 +500,17 @@ __kernel void PrepareIntegrationWeightsGD(const int NFREQ,
 
 
 __kernel void PrepareIntegrationWeightsTrapezoid(const int NFREQ,                                        
-																 const int NE,
-																 __global float *Ef,         // Ef[NFREQ], FREQ*PLANCK
-																 __global float *E,          // E[NEPO], energy grid for the current size
-																 __global int   *L1,         // L1[NE*NE]
-																 __global int   *L2,         // L2[NE*NE]
-																 __global float *IW ,        // Iw[ << 0.5*NE*NE*NFREQ]
-																 __global float *wrk,        // NE*NFREQ + NE*(NFREQ+4)
-																 __global int   *noIw        // noIw for each l = lower bin
-																 ) 
+                                                 const int NE,
+                                                 __global float *Ef,         // Ef[NFREQ], FREQ*PLANCK
+                                                 __global float *E,          // E[NEPO], energy grid for the current size
+                                                 __global int   *L1,         // L1[NE*NE]
+                                                 __global int   *L2,         // L2[NE*NE]
+                                                 __global float *IW ,        // Iw[ << 0.5*NE*NE*NFREQ]
+                                                 __global float *wrk,        // NE*NFREQ + NE*(NFREQ+4)
+                                                 __global int   *noIw        // noIw for each l = lower bin
+                                            ) 
 {
-   // Integration weights using Draine & Li (2001) formula (15).
-	// Trapezoid integration is justified by the non-equidistant energy grid and the Monte Carlo noise
-	// (in intensities) that makes higher-order methods less reliable.
+   // Integration weights using the Guhathagurta & Draine formulas
    const int l = get_global_id(0) ; // Each work item works on different "l", initial enthalpy bin.
    if (l>=(NE-1)) return ;
    int index = 0 ;  
@@ -468,7 +525,8 @@ __kernel void PrepareIntegrationWeightsTrapezoid(const int NFREQ,
    dEl   =  E[l+1] - E[l] ;
    
    for(int  u=l+1; u<NE; u++) {
-      Eu    =  0.5*(E[u]+E[u+1]) ;  // E[NEPO] ... maximum index NE (ok, array has NEPO elements)
+      
+      Eu    =  0.5*(E[u]+E[u+1]) ;                  // E[NEPO] ... maximum index NE (ok, array has NEPO elements)
       dEu   =  E[u+1] - E[u] ;
       
       W1    =  E[u] - E[l+1] ;                      // Eumin - Elmax
@@ -492,28 +550,27 @@ __kernel void PrepareIntegrationWeightsTrapezoid(const int NFREQ,
          i += 1 ;
       }
       i = max(i-1, 0) ;
-      
+      // now   Ef[i] < W1 < Ef[i+1]
       
       // W1-W2 ==========================================================================================
-      // so far as the current bin [i, i+1] i concerned...
+      // current bin [i, i+1]
       a      =  clamp(W1, (REAL)Ef[i], (REAL)Ef[i+1]) ;  // from W1 or from start of bin at Ef[i]
       b      =  clamp(W2, (REAL)a,     (REAL)Ef[i+1]) ;  // to W2 or the end of bin Ef[i] = Ef[i+1]
       alpha  =  (a-Ef[i])/(Ef[i+1]-Ef[i]) ;  // weight for Ef[i+1]
       beta   =  (b-Ef[i])/(Ef[i+1]-Ef[i]) ;  // weight for Ef[i+1]
-      // if we evaluate G and E at the end points of the interval and derive weights only for the
-      // interpolation of nabs[i] values
       //  G = (E-W1) / (dEu*dEl)
       G1             =  (a-W1)/dEl ;  // directly at the end points of the interval (if and when a, b != E[i])
-      G2             =  (b-W1)/dEl ;  
+      G2             =  (b-W1)/dEl ;
+      // integrand =  G * Cabs * u  dE =>  weight =  G * Cabs * dE
       temp_Iw[i]    +=  0.5*(b-a)*(G1*a*(1.0-alpha) + G2*b*(1.0-beta)) * coeff ;  // weight 1-alpha
       temp_Iw[i+1]  +=  0.5*(b-a)*(G1*a*alpha       + G2*b*beta      ) * coeff ;  // weight 1-beta
-      if (b<W2) {  // if step was till the end of a bin i, we continue with the next bin
+      if (b<W2) {  // if W2 not yet reached, continue with the next bin
          i += 1 ;
       }
       while ((i<(NFREQ-1)) && (b<W2)) {
          a              =  b ;
          G1             =  G2 ;
-         b              =  min(W2, (REAL)Ef[i+1]) ;
+         b              =  min(W2, (REAL)Ef[i+1]) ;     // to W2 or end of bin i
          alpha          =  (a-Ef[i])/(Ef[i+1]-Ef[i]) ;  // weight for i+1
          beta           =  (b-Ef[i])/(Ef[i+1]-Ef[i]) ;
          G2             =  (b-W1)/dEl ;
@@ -528,7 +585,7 @@ __kernel void PrepareIntegrationWeightsTrapezoid(const int NFREQ,
       while ((i<(NFREQ-1)) && (b<W3)) {
          a             =  b ;
          G1            =  G2 ;
-         b             =  clamp(W3, a, (REAL)Ef[i+1]) ;
+         b             =  min(W3, (REAL)Ef[i+1]) ;  // to W3 or end of bin i
          G2            =  min(dEl, dEu) / dEl ;
          alpha         =  (a-Ef[i])/(Ef[i+1]-Ef[i]) ;
          beta          =  (b-Ef[i])/(Ef[i+1]-Ef[i]) ;
@@ -543,11 +600,11 @@ __kernel void PrepareIntegrationWeightsTrapezoid(const int NFREQ,
       while ((i<(NFREQ-1)) && (b<W4)) {
          a               =  b ;
          G1              =  G2 ;
-         b               =  clamp(W4, a, (REAL)Ef[i+1]) ;
+         b               =  min(W4, (REAL)Ef[i+1]) ;
          alpha           =  (a-Ef[i])/(Ef[i+1]-Ef[i]) ;
          beta            =  (b-Ef[i])/(Ef[i+1]-Ef[i]) ;
          // G2              =  (W4-b)/dEl ;
-         G2              =  (W4-0.5*b)/dEl ;
+         G2              =  (W4-0.5*(a+b))/dEl ;
          temp_Iw[i]     +=  0.5*(b-a)*(G1*a*(1.0-alpha) + G2*b*(1.0-beta)) * coeff ;
          temp_Iw[i+1]   +=  0.5*(b-a)*(G1*a*alpha       + G2*b*beta      ) * coeff ;
          if (b<W4)  {  //  continue till the next bin
@@ -557,7 +614,6 @@ __kernel void PrepareIntegrationWeightsTrapezoid(const int NFREQ,
       
       // Intrabin ==========================================================================================
       if (1) {
-         // intrabin absorptions  --- not significant ?? .... no effect on the dN/dT 
          // Integral [0, dEl] of   (c/(eu-El)) (1-E/dEl)  Ef    dE
          if (u==(l+1)) {
             i     =  0 ;
