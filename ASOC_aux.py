@@ -224,6 +224,10 @@ class User:
         
         self.POLSIM        = 0       # for full polarisation 
         self.CR_HEATING    = 0.0     # CR heating, multiplier for the default rate, 0.0 = no CR heating
+
+        self.ABSTHIN       = -1
+        self.NNNLIMIT      = 0.0     # density threshold for NN training sample
+        
         # read inifile
         for line in open(filename).readlines():    
             # assert((DIFFUSE==1)&(WITHDUST==1)&(DISTANCE<1.0))
@@ -247,7 +251,7 @@ class User:
                     self.SINGLE_MAP_FREQ = concatenate((self.SINGLE_MAP_FREQ, asarray([um2f(float(ss)),], float32)))
                 if (len(self.SINGLE_MAP_FREQ)>1):
                     self.SINGLE_MAP_FREQ = sort(self.SINGLE_MAP_FREQ) # increasing frequency !!
-                print("ASOC: mapum ", self.SINGLE_MAP_FREQ)
+                # print("ASOC: mapum ", self.SINGLE_MAP_FREQ)
 
             if (s[0]=='singleabu'):
                 self.SINGLE_ABU = 1
@@ -279,7 +283,7 @@ class User:
                 for x in s[2:]:
                     if (float(x)<0.0):  self.savetau_freq.append(0.0)  # negative meaning column density
                     else:               self.savetau_freq.append(um2f(float(x)))
-                print("self.savetau_freq ", self.savetau_freq)
+                # print("self.savetau_freq ", self.savetau_freq)
                     
             if (key.find('pssavetau')==0):
                 self.file_pssavetau  = s[1]
@@ -318,7 +322,8 @@ class User:
             if (key.find('split')==0):       self.DO_SPLIT          = int(a)
             if (key.find('mapint')==0):      self.MAP_INTERPOLATION = int(a)
             if (key.find('polstat')==0):     self.POLSTAT           = int(a)
-            
+            if (key.find('absthin')==0):     self.ABSTHIN           = int(a)
+            if (key.find('nnnlimit')==0):    self.NNNLIMIT          = float(a)
             
             if (key.find('platform')==0):  #  platform  #platform [ #device ]
                 self.PLATFORM   = int(a)
@@ -405,7 +410,7 @@ class User:
                         self.EMWEIGHT_LIM[2]   = float(s[4])
                         if (len(s)>5):
                             self.EMWEIGHT_SKIP = int(s[5])
-                print("emwei %6.4f %6.4f %6.4f\n" % (self.EMWEIGHT_LIM[0], self.EMWEIGHT_LIM[1], self.EMWEIGHT_LIM[2]))
+                # print("emwei %6.4f %6.4f %6.4f\n" % (self.EMWEIGHT_LIM[0], self.EMWEIGHT_LIM[1], self.EMWEIGHT_LIM[2]))
             if (len(s)<3): continue
             key, a, b = s[0], s[1], s[2]            
             # keywords with two arguments
@@ -451,11 +456,11 @@ class User:
                 self.BFILES = [ a, b, c ]
                 if (len(s)==5):
                     self.MAXLOS  = float(s[4]) # maximum length of the LOS [GL]
-                    print("MAXLOS %.3f" % self.MAXLOS)
+                    # print("MAXLOS %.3f" % self.MAXLOS)
                 if (len(s)>5):
                     self.MINLOS = float(s[4])
                     self.MAXLOS = float(s[5])
-                    print("MINLOS %.3f, MAXLOS %.3f" % (self.MINLOS, self.MAXLOS))
+                    # print("MINLOS %.3f, MAXLOS %.3f" % (self.MINLOS, self.MAXLOS))
             if (key.find('perspec')==0):
                 self.INTOBS = cl.cltypes.make_float3(float(a), float(b), float(c))
             if (key.find('stepwei')==0):
@@ -554,7 +559,7 @@ def read_dust(USER):
     AFG, AFABS, AFSCA = [], [], []
     USER.NFREQ = -1
     for filename in USER.file_optical:
-        print("read_dust: %s" % filename) 
+        # print("read_dust: %s" % filename) 
         tmp           = open(filename).readlines()
         GRAIN_DENSITY = float(tmp[1].split()[0])
         GRAIN_SIZE    = float(tmp[2].split()[0])
@@ -611,14 +616,14 @@ def read_scattering_functions(USER):
         kernel needs to have abundance arrays for all dust species !
     """
     ndust =  len(USER.file_scafunc)   #  ndust>1 implies -D WITH_MSF = multiple scattering functions
-    print("ndust=%d" % ndust)
+    # print("ndust=%d" % ndust)
     if ((ndust!=len(USER.file_optical))&(ndust!=1)):
         print("Must have either a single scattering function (DSC file) or one for each dust!")
         sys.exit()
     FDSC  =  zeros((ndust, USER.NFREQ, USER.DSC_BINS), float32)
     FCSC  =  zeros((ndust, USER.NFREQ, USER.DSC_BINS), float32)
     for i in range(ndust):
-        print("--- SCATTERING FUNCTION: %s" % USER.file_scafunc[i])
+        # print("--- SCATTERING FUNCTION: %s" % USER.file_scafunc[i])
         fp           =  open(USER.file_scafunc[i], 'rb')
         FDSC[i,:,:]  =  fromfile(fp, float32, USER.NFREQ*USER.DSC_BINS).reshape(USER.NFREQ, USER.DSC_BINS)
         FCSC[i,:,:]  =  fromfile(fp, float32).reshape(USER.NFREQ, USER.DSC_BINS)
@@ -737,7 +742,7 @@ def read_cloud(USER):
         USER.file_cloud = newname
         fp = open(USER.file_cloud, 'rb')
         NX, NY, NZ, LEVELS, CELLS = fromfile(fp, int32, 5)
-        print("NX %d, NY %d, NZ %d LEVELS %d, CELLS %d" % (NX, NY, NZ, LEVELS, CELLS))
+        # print("NX %d, NY %d, NZ %d LEVELS %d, CELLS %d" % (NX, NY, NZ, LEVELS, CELLS))
     #
     LCELLS = zeros(LEVELS, int32)
     OFF    = zeros(LEVELS, int32)
@@ -749,7 +754,7 @@ def read_cloud(USER):
         if (level>0):
             OFF[level] = OFF[level-1] + cells   # index to [CELLS] array, first on this level
         cells = fromfile(fp, int32, 1)[0]       # cells on this level of hierarchy
-        print(" level %2d  cells %6d" % (level, cells))
+        # print(" level %2d  cells %6d" % (level, cells))
         if (cells<0):
             break                               # the lowest level already read
         LCELLS[level] = cells    
@@ -773,7 +778,7 @@ def read_cloud(USER):
     USER.LEVELS, USER.CELLS, USER.LCELLS, USER.OFF, USER.DENS = \
     LEVELS, CELLS, LCELLS, OFF, DENS
     #
-    print("CLOUD READ: %d %d %d   %d  %d" % (NX, NY, NZ, LEVELS, CELLS))
+    # print("CLOUD READ: %d %d %d   %d  %d" % (NX, NY, NZ, LEVELS, CELLS))
     if (0): # Fix malformed cloud file
         LEVELS = len(nonzero(LCELLS>0)[0])
         LCELLS = LCELLS[0:LEVELS]
@@ -866,9 +871,9 @@ def mmap_emitted(USER, CELLS, LEVELS, LCELLS, REMIT_NFREQ, OFF, DENS):
         try:
             # os.system('ls -l emitted.data')
             # os.system('ls -l /dev/shm/emitted.data')
-            print("Reading emitted file %s" % USER.file_emitted)
+            # print("Reading emitted file %s" % USER.file_emitted)
             old_cells, old_nfreq = fromfile(USER.file_emitted, int32, 2)
-            print("Emitted file has cells %d, freq %d -> now %d cells, %d freq" % (old_cells, old_nfreq,  CELLS, REMIT_NFREQ))
+            # print("Emitted file has cells %d, freq %d -> now %d cells, %d freq" % (old_cells, old_nfreq,  CELLS, REMIT_NFREQ))
             if (old_nfreq!=REMIT_NFREQ):   # must have the same number of frequencies
                 print("mmap_emitted %s -- number of frequencies changed %d -> %d ???" % (USER.file_emitted, old_nfreq, REMIT_NFREQ))
                 ok = 0   
@@ -930,7 +935,7 @@ def mmap_emitted(USER, CELLS, LEVELS, LCELLS, REMIT_NFREQ, OFF, DENS):
                 for old_levels in range(LEVELS):
                     old_cells -= LCELLS[old_levels]
                     if (old_cells<=0): break
-                print("We think that the old file had data for %d hierarchy levels" % old_levels)
+                # print("We think that the old file had data for %d hierarchy levels" % old_levels)
                 ##
                 if (old_levels>0):
                     for level in range(old_levels-1, LEVELS-1): # level -> level+1
@@ -955,7 +960,7 @@ def mmap_emitted(USER, CELLS, LEVELS, LCELLS, REMIT_NFREQ, OFF, DENS):
                 for old_levels in range(LEVELS):
                     old_cells -= LCELLS[old_levels]
                     if (old_cells<=0): break
-                print("We think that the old file had data for %d hierarchy levels" % old_levels)
+                # print("We think that the old file had data for %d hierarchy levels" % old_levels)
                 ##
                 for level in range(old_levels-1, LEVELS-1): # level -> level+1
                     print('COPY EMITTED FROM LEVEL %d TO LEVEL %d' % (level, level+1))
@@ -1005,15 +1010,15 @@ def set_wg_sizes(USER, CELLS):
     BGPAC, CLPAC, PSPAC  =  USER.BGPAC, USER.CLPAC, USER.PSPAC
     PACKETS =  USER.BGPAC + USER.CLPAC + USER.PSPAC
     NITER   =  max([1, int(PACKETS/(GLOBAL*USER.BATCH))])
-    print(" --- NITER %d" % NITER)
-    print(" --- REQUEST  BG %9d  PS %9d  CELL %9d    =  %9d" % (BGPAC, PSPAC, CLPAC, PACKETS))
+    # print(" --- NITER %d" % NITER)
+    # print(" --- REQUEST  BG %9d  PS %9d  CELL %9d    =  %9d" % (BGPAC, PSPAC, CLPAC, PACKETS))
     # Calculate work group sizes under the assumption that one work group handles
     # only packages of certain origin.
     #   packets = GLOBAL*NITER*BATCH =  sum of  WRG*LOCAL*NITER*BATCH
     PSWRG   =  max([1, int(round((GLOBAL/LOCAL)*PSPAC/float(PACKETS)))])
     BGWRG   =  max([1, int(round((GLOBAL/LOCAL)*BGPAC/float(PACKETS)))])
-    print(" --- BGPAC %d, PACKETS %d, ratio %.2f, GLOBAL/LOCAL %d, BGWRG %d" % \
-       (BGPAC, PACKETS, BGPAC/float(PACKETS), int(GLOBAL/LOCAL), BGWRG))
+    # print(" --- BGPAC %d, PACKETS %d, ratio %.2f, GLOBAL/LOCAL %d, BGWRG %d" % \
+    #   (BGPAC, PACKETS, BGPAC/float(PACKETS), int(GLOBAL/LOCAL), BGWRG))
     if (PSPAC<=0):  PSWRG = 0
     if (BGPAC<=0):  BGWRG = 0
     CLWRG   =  (GLOBAL/LOCAL) - PSWRG - BGWRG
@@ -1176,7 +1181,7 @@ def opencl_init(USER, verbose=False):
         USER.sDEVICE is not set but the routine does check environmental variable OPENCL_SDEVICE
         (a string that would identify a device by a string in its name)
     """
-    print("opencl_init")
+    # print("opencl_init")
     platform, device, context, queue = [], [], [], []
     try_platforms    = arange(5)
     sdevice = ''
@@ -1251,7 +1256,7 @@ def opencl_init_s(USER, verbose=False):
         selection is made based on USER.PLATFORM (if specified), USER.DEVICES, and USER.sDEVICE
         USER.sDEVICE overrides the environmental variable OPENCL_SDEVICE
     """
-    print("opencl_init_s")
+    # print("opencl_init_s")
     try_platforms    = arange(5)     # check all platforms, checking for the device with the correct string
     if (USER.PLATFORM>=0): try_platforms = [USER.PLATFORM,] # or only platforms specified by the user
     platform, device, context, queue = None, [], None, None
@@ -1335,7 +1340,7 @@ def temperature_to_emitted(USER, EMITTED):
         This assumes that there is only a single dust component
         => USER.FABS[0] is being used
     """
-    print("*** temperature_to_emitted ***")
+    # print("*** temperature_to_emitted ***")
     if (len(USER.FABS)>1):
         print("*** Error: temperature_to_emitted requires that one has a single dust component")
         sys.exit(0)
@@ -1343,7 +1348,7 @@ def temperature_to_emitted(USER, EMITTED):
     fp    =  open(USER.file_temperature, "rb")
     fromfile(fp, int32, 4)  # skip header ...
     for level in range(USER.LEVELS):
-        print("level %d --- lcells %d" % (level, itmp))
+        # print("level %d --- lcells %d" % (level, itmp))
         itmp      =  fromfile(fp, int32, 1)
         a, b      =  USER.OFF[level], USER.OFF[level]+USER.LCELLS[level]
         TNEW[a:b] =  fromfile(fp, float32, USER.LCELLS[level])
@@ -1373,7 +1378,7 @@ def temperature_to_emitted_inmem(USER, TNEW, EMITTED):
     Note:
         This assumes that there is only a single equilibrium dust component.
     """
-    print("*** temperature_to_emitted_inmem ***")
+    # print("*** temperature_to_emitted_inmem ***")
     if (len(USER.FABS)>1):
         print("*** Error: temperature_to_emitted_inmem requires that one has a single dust component")
         sys.exit(0)
@@ -1389,7 +1394,7 @@ def temperature_to_emitted_inmem(USER, TNEW, EMITTED):
         USER.FABS[0][a:b]*Planck(USER.FFREQ[a:b], TNEW[icell])/(USER.GL*PARSEC)   # 1e20*photons/H -> FACTOR
     del TNEW
     del m
-    print("*** temperature_to_emitted_inmem - done ! ***")
+    # print("*** temperature_to_emitted_inmem - done ! ***")
     
     
     
@@ -1409,7 +1414,7 @@ def read_otfile(filename):
     """
     fp  = open(filename, "rb")
     nx, ny, nz, levels, cells = fromfile(fp, int32, 5)
-    print("read_otfile %s --- dims %d %d %d --- levels %d cells %d" % (filename, nx, ny, nz, levels, cells))
+    # print("read_otfile %s --- dims %d %d %d --- levels %d cells %d" % (filename, nx, ny, nz, levels, cells))
     a  = 0
     val = zeros(cells, float32)
     for level in range(levels):
@@ -1500,8 +1505,8 @@ def values_down_in_hierarchy(OFF, LCELLS, H, X, Lparent):
         Updated X array, values on Lparent+1 are copies of the parent values
         on the hierarchy level Lparent
     """
-    print("values_down_in_hierarchy from parent level %d" % Lparent)
-    print("H has %d cells, X has %d cells, LCELLS has %d levels" % (len(H), len(X), len(LCELLS)))
+    # print("values_down_in_hierarchy from parent level %d" % Lparent)
+    # print("H has %d cells, X has %d cells, LCELLS has %d levels" % (len(H), len(X), len(LCELLS)))
 
     for i in range(LCELLS[Lparent]):
         pind = OFF[Lparent]+i                # index of the parent
@@ -1595,10 +1600,10 @@ def AnalyseExternalPointSources(NX, NY, NZ, PSPOS, NO_PS, PS_METHOD):
                 vec[1] =  NY*((ii/2)%2==0)    - PSPOS[i][1]
                 vec[2] =  NZ*((ii/4)%2==0)    - PSPOS[i][2]
                 tmp    =  fabs(dot(axis, vec)) / np.linalg.norm(vec)
-                print("    CORNER %d:   COS_THETA %.2f" % (ii, tmp))
+                # print("    CORNER %d:   COS_THETA %.2f" % (ii, tmp))
                 cos_theta  =  min([cos_theta, tmp])
             XPS_AREA[3*i] = cos_theta
-            print("Point source %d, side %d, cos_theta = %.3f" % (i, XPS_SIDE[3*i], XPS_AREA[3*i]))
+            # print("Point source %d, side %d, cos_theta = %.3f" % (i, XPS_SIDE[3*i], XPS_AREA[3*i]))
             
     if (0):
         for i in range(NO_PS):
@@ -1683,7 +1688,6 @@ def WriteSampleIni(filename):
     fp.write('# wavelength  0.1 5000.0       # limit wavelengths in the output spectrum files [um]\n')
     fp.write('# noabsorbed                   # do not save absorptions (e.g. if emission solved within SOC)\n')
     fp.write('# nomap                        # skip the writing of the map files\n')
-    fp.write('# nosolve                      # skip the solving of dust emission\n')
     fp.write('# temperature T.soc            # save temperatures to the specified file (non-stochastic heating only)\n')    
     fp.write('# device      g                # select OpenCL device, c for CPU, g for GPU  \n')
     fp.write('# platform    0                # select one OpenCL platform (check the order with clinfo)\n')
@@ -1853,9 +1857,12 @@ def get_floats(s):
     # for list of strings, return maximum number of floats that could be read
     res = []
     for i in range(len(s)):
+        if (s[i][0:1]=="#"): break
         try:
             x = float(s[i])
             res.append(x)
         except:
-            pass
+            ## pass            
+            break
+        
     return asarray(res, float32)

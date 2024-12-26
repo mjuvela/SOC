@@ -63,6 +63,15 @@ The same with variable abundances:
     Added new options for work with A2E_LIB (dust emission solved with the library method).
     libabs  => save absorptions for a subset of frequencies and stop there
     libmaps => load smaller emitted file with a subset of frequencies, write maps for those
+
+2024-12-23:
+    Added option "absthin n". Absorptions are saved only every n:th cell. This would be used
+    before ASOC_driver.py with *nnmake*, to decrease the file sizes when neural network is
+    used to create the mapping from absorptions to emissions. The parameter *absthin*
+    is separate from the A2E_MABU parameter *nnthin*. Although both could theoretically be
+    used at the same time, with *absthin* one should usually skip *nnthin*.
+    We make further the assumption that with "absthin" FABSORBED will be in-memory array
+    (and not a memory-mapped file).
 """
 
 t0000 = time.time()
@@ -89,6 +98,22 @@ USER = User(sys.argv[1])
 if (not(USER.Validate())):   
     print("Check the inifile... exiting!"),  sys.exit()
 
+
+if (USER.ABSTHIN>0):
+    # only absorptions calculated, only for every USER.ABSTHIN:th cell
+    USER.ITERATIONS     = 1
+    USER.NOSOLVE        = 1
+    USER.NOMAP          = 1
+    USER.SAVE_INTENSITY = 0
+    # this should be used only before A2E_MABU.py run with "nnmake" in the ini file
+    # we test for this keyword here, although that is used only by A2E_MABU.py script
+    # we also make the assumption that "absthin" implies USER.MMAP_ABSORBED=False
+    if (not('nnmake' in USER.KEYS)):
+        print("*** WARNING: option absthin can be used *only* before A2e_MABU.py with nnmake")
+        USER.MMAP_ABSORBED = False
+        time.sleep(5)
+        
+    
 # Read optical data for the dust model, updates USER.NFREQ
 FFREQ, AFG, AFABS, AFSCA = read_dust(USER) # arrays containing parameters possibly for multiple dust species
 NFREQ             =  USER.NFREQ
@@ -101,9 +126,7 @@ NDUST             =  len(AFABS)
 ONFREQ            =  NFREQ
 if ((USER.LIB_ABS)|(USER.LIB_MAPS)):
     ONFREQ        =  len(USER.FSELECT)
-    print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
     print("!!!!!  ONFREQ = %3d   <   NFREQ = %3d  !!!!!" % (ONFREQ, NFREQ))
-    print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 if (USER.LIB_MAPS):
     USER.ITERATIONS  = 0
     USER.NOSOLVE     = 1
@@ -233,6 +256,7 @@ if (USER.ITERATIONS<1):
     # If we solved emission outside SOC and here only write spectra without new
     # simulations, we do not want to clear the old absorption file !!
     USER.NOABSORBED = True
+
 
     
 if ((NDUST>1)&(USER.ITERATIONS>0)&(USER.NOABSORBED)&(not(USER.NOSOLVE))):
@@ -575,6 +599,7 @@ Tkernel, Tpush, Tpull, Tsolve, Tmap = 0.0, 0.0, 0.0, 0.0, 0.0
 
 ## ABSORBED  = zeros(CELLS, float32)  ---- 2019-02-19  NOT USED !?
 FABSORBED = None
+ABSCELLS  = CELLS   # ABSCELLS < CELLS only with USER.ABSTHIN
 if (not(USER.NOABSORBED)): # we store absorptions at all frequencies, use mmap array FABSORBED
     # This is required by A2E ... DustEm uses the file_intensity instead
     # If LIB_ABS is true, absorption file will contain only frequencies USER.FSELECT => ONFREQ frequencies
@@ -588,8 +613,14 @@ if (not(USER.NOABSORBED)): # we store absorptions at all frequencies, use mmap a
         FABSORBED[:,:] = 0.0
     else:   # keep FABSORBED directly in memory, save to disk only at the end
         print("*** FABSORBED numpy array")
-        FABSORBED = zeros((CELLS, ONFREQ), float32)
-        
+        if (USER.ABSTHIN<=1):   # normal case, absorptions for all cells
+            FABSORBED = zeros((CELLS, ONFREQ), float32)
+        else:
+            ABSCELLS  = (CELLS+USER.ABSTHIN-1) // USER.ABSTHIN
+            tmp       = zeros(CELLS, float32)[0::USER.ABSTHIN]
+            assert(len(tmp)==ABSCELLS)
+            FABSORBED = zeros((ABSCELLS, ONFREQ), float32)
+            
         
     
     
@@ -1053,18 +1084,20 @@ else:
             GLOBAL  =  100*ROI_LOAD_NELEM                     # threads = 100 x  surface elements
             BATCH   =  12*USER.ROI_NSIDE*USER.ROI_NSIDE       # this many healpix pixels
             BATCH   =  max([1, int(USER.ROIPAC/(100.0*BATCH*ROI_LOAD_NELEM))]) # work item does healpix map this many times
-            BATCH  *=  12*USER.ROI_NSIDE*USER.ROI_NSIDE       # kernel gets BATCH == number of rays per surf. element = per work item
+            BATCH  *=  12*USER.ROI_NSIDE*USER.ROI_NSIDE       # kernel gets BATCH = rays per surf. element = per work item
             # i.e. BATCH must be multiple >=1 of the number of healpix pixels
             GLOBAL  =  Fix(GLOBAL, LOCAL)                     # possibly increase to make divisible by LOCAL
             PACKETS =  ROI_LOAD_NELEM                         # use PACKETS only to store number of surface elements
             if (VERBOSE): 
                 print("================================================================================")
-                print("ROI --- GLOBAL %d, BATCH %d, ROI_LOAD_NELEM %d, ROI_LOAD_NPIX %d, PACKETS %d" % (GLOBAL, BATCH, ROI_LOAD_NELEM, ROI_LOAD_NPIX, PACKETS))
+                print("ROI --- GLOBAL %d, BATCH %d, ROI_LOAD_NELEM %d, ROI_LOAD_NPIX %d, PACKETS %d" %
+                      (GLOBAL, BATCH, ROI_LOAD_NELEM, ROI_LOAD_NPIX, PACKETS))
                 print("================================================================================")
             
         # This will set TABS == 0.0 --- in this loop over II, TABS is always 
         #   just for one radiation field component
-        kernel_zero(commands[ID],[GLOBAL,],[LOCAL,],0,TABS_buf[ID],XAB_buf[ID],INT_buf[ID],INTX_buf[ID],INTY_buf[ID],INTZ_buf[ID])
+        kernel_zero(commands[ID],[GLOBAL,],[LOCAL,],0,TABS_buf[ID],XAB_buf[ID],INT_buf[ID],
+                    INTX_buf[ID],INTY_buf[ID],INTZ_buf[ID])
                 
 
         OIFREQ = -1   # true index of the saved frequency, in case we have LIB_ABS==True
@@ -1131,7 +1164,8 @@ else:
                 sys.stdout.write("  FREQ %3d/%3d  %10.3e" % (IFREQ+1, NFREQ, FREQ))
                 sys.stdout.flush()
             
-            kernel_zero(commands[ID],[GLOBAL,],[LOCAL,],1,TABS_buf[ID],XAB_buf[ID],INT_buf[ID],INTX_buf[ID],INTY_buf[ID],INTZ_buf[ID])
+            kernel_zero(commands[ID],[GLOBAL,],[LOCAL,],1,TABS_buf[ID],XAB_buf[ID],INT_buf[ID],
+                        INTX_buf[ID],INTY_buf[ID],INTZ_buf[ID])
             
             if (II==0): # update point source luminosities for the current frequency
                 PS = LPS[:,IFREQ] * WPS/FREQ  # source photons per package
@@ -1372,7 +1406,8 @@ else:
                 ## print("II=3 -- ROI_LOAD -- USER.WITH_ROI_LOAD=%d" % USER.WITH_ROI_LOAD)
                 if (USER.WITH_ROI_LOAD<=0): continue  # no ROI_LOAD photons simulated
                 # scale in again the dependence on the grid length
-                cl.enqueue_copy(commands[0], ROI_LOAD_buf, asarray(ROI_LOAD[IFREQ,:]*USER.ROI_LOAD_SCALE/(USER.GL*USER.GL), float32))
+                cl.enqueue_copy(commands[0], ROI_LOAD_buf,
+                                asarray(ROI_LOAD[IFREQ,:]*USER.ROI_LOAD_SCALE/(USER.GL*USER.GL), float32))
                 commands[ID].finish()
                 if (USER.WITH_ROI_SAVE): # argument list has both ROI_LOAD and ROI_SAVE buffers
                     #print("    kernel_ram_pb  --- ROI_LOAD + ROI_SAVE")
@@ -1438,7 +1473,11 @@ else:
                     # ... iff FABSORBED is mmap file => use "mmapabs 0", if possible                      
                     # vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
                     tx = time.time()
-                    FABSORBED[:, OIFREQ] += TMP ;  # all scalings later; using OIFREQ <= IFREQ (in case LIB_ABS)
+                    # this never executed with USER.ABSTHIN>0
+                    if (USER.ABSTHIN<=1):
+                        FABSORBED[:, OIFREQ] += TMP ;  # all scalings later; using OIFREQ <= IFREQ (in case LIB_ABS)
+                    else:
+                        FABSORBED[:, OIFREQ] += TMP[0::USER.ABSTHIN] ;
                     # print(".... copy to FABSORBED: %.3f seconds\n" % (time.time()-tx))                    
                     # ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ 
                 if (USER.SAVE_INTENSITY==1):
@@ -1543,7 +1582,8 @@ if (not('SUBITERATIONS' in USER.KEYS)):
         
         commands[ID].finish()
         # zero TABS, XABS, INT, INTX, INTY, INTZ
-        kernel_zero(commands[ID],[GLOBAL,],[LOCAL,],np.int32(0),TABS_buf[ID],XAB_buf[ID],INT_buf[ID],INTX_buf[ID],INTY_buf[ID],INTZ_buf[ID])
+        kernel_zero(commands[ID],[GLOBAL,],[LOCAL,],np.int32(0),TABS_buf[ID],XAB_buf[ID],INT_buf[ID],
+                    INTX_buf[ID],INTY_buf[ID],INTZ_buf[ID])
         commands[ID].finish()
         if (USER.WITH_ALI): 
             XEM[:] = 1.0e-32
@@ -1591,7 +1631,8 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                 FREQ = FFREQ[IFREQ]
                 
                 commands[ID].finish()
-                kernel_zero(commands[ID],[GLOBAL,],[LOCAL,],np.int32(1),TABS_buf[ID],XAB_buf[ID],INT_buf[ID],INTX_buf[ID],INTY_buf[ID],INTZ_buf[ID])
+                kernel_zero(commands[ID],[GLOBAL,],[LOCAL,],np.int32(1),TABS_buf[ID],XAB_buf[ID],INT_buf[ID],
+                            INTX_buf[ID],INTY_buf[ID],INTZ_buf[ID])
                 commands[ID].finish()
                 
                 if (USER.LIB_ABS): # simulate only reference frequencies in FSELECT
@@ -1831,7 +1872,10 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                         cl.enqueue_copy(commands[ID], TMP, INT_buf[ID])    # ~ total field
                         commands[ID].finish()                    
                         if (not(USER.NOABSORBED)):
-                            FABSORBED[:,OIFREQ] += TMP
+                            if (USER.ABSTHIN<=1):
+                                FABSORBED[:,OIFREQ] += TMP   # never executed with USER.ABSTHIN>0
+                            else:
+                                FABSORBED[:,OIFREQ] += TMP[0::USER.ABSTHIN]
                         if (USER.SAVE_INTENSITY==1):
                             for level in range(LEVELS):
                                 coeff =  KDEV * (PLANCK*FREQ/ABS) * (8.0**level)
@@ -1915,7 +1959,8 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                     # EMIT  ==  sum of TABS components ==  OLD + DELTA + CONSTANT  absorptions
                 else:
                     # Here EMIT becomes the sum of all absorptions due to constant sources plus the medium
-                    if (VERBOSE): print("===  TABS  = %12.4e  ... ADD CTABS % 12.4e" % (mean(EMIT), mean(CTABS)))                
+                    if (VERBOSE): print("===  TABS  = %12.4e  ... ADD CTABS % 12.4e" %
+                                        (mean(EMIT), mean(CTABS)))
                     EMIT[:]  +=  CTABS   # add absorbed energy due to constant radiation sources
 
             else:
@@ -2136,7 +2181,7 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                 ####
             elif ('MPE' in USER.KEYS):         # emission multithreaded on host
                 # Note: this is slower than the single-thread Python version below....
-                print("MPE - multithreaded emission calculation in Python")
+                # print("MPE - multithreaded emission calculation in Python")
                 def MP_emit(ifreq, ithread, ncpu, TNEW, MPA):
                     ii   =  int(REMIT_I1 + ifreq + ithread)  # index of the frequency
                     if (ii>REMIT_I2):  # no such channel
@@ -2223,7 +2268,8 @@ if ('SUBITERATIONS' in USER.KEYS):
         prc = 100.0*len(mask[0])/float(len(TOLD))
         if (VERBOSE): print("ITERATION %d/%d -- ignore emission %.2f %% of cells" % (iteration+1, USER.ITERATIONS, prc))
         commands[ID].finish()    
-        kernel_zero(commands[ID],[GLOBAL,],[LOCAL,],np.int32(0),TABS_buf[ID],XAB_buf[ID],INT_buf[ID],INTX_buf[ID],INTY_buf[ID],INTZ_buf[ID])
+        kernel_zero(commands[ID],[GLOBAL,],[LOCAL,],np.int32(0),TABS_buf[ID],XAB_buf[ID],INT_buf[ID],
+                    INTX_buf[ID],INTY_buf[ID],INTZ_buf[ID])
         commands[ID].finish()
 
         # Note -- for the inactive (cold cells) this causes error because their contribution
@@ -2283,7 +2329,8 @@ if ('SUBITERATIONS' in USER.KEYS):
         for IFREQ in range(NFREQ):     # loop over single frequencies
             commands[ID].finish()
             # Among other things, set TABS==0.0
-            kernel_zero(commands[ID],[GLOBAL,],[LOCAL,],np.int32(1),TABS_buf[ID],XAB_buf[ID],INT_buf[ID],INTX_buf[ID],INTY_buf[ID],INTZ_buf[ID])
+            kernel_zero(commands[ID],[GLOBAL,],[LOCAL,],np.int32(1),TABS_buf[ID],XAB_buf[ID],INT_buf[ID],
+                        INTX_buf[ID],INTY_buf[ID],INTZ_buf[ID])
             commands[ID].finish()
             # Parameters for the current frequency
             FREQ   =  FFREQ[IFREQ]
@@ -2427,7 +2474,10 @@ if ('SUBITERATIONS' in USER.KEYS):
                     cl.enqueue_copy(commands[ID], TMP, INT_buf[ID])       # ~ total field
                     commands[ID].finish()                    
                     if (not(USER.NOABSORBED)):
-                        FABSORBED[:, OIFREQ] += TMP
+                        if (USER.ABSTHIN<=1):
+                            FABSORBED[:, OIFREQ] += TMP  # never executed with USER.ABSTHIN>0
+                        else:
+                            FABSORBED[:, OIFREQ] += TMP[0::USER.ABSTHIN]
                     if (USER.SAVE_INTENSITY==1):
                         for level in range(LEVELS):
                             coeff =  KDEV * (PLANCK*FREQ/ABS) * (8.0**level)
@@ -2714,7 +2764,8 @@ if (not(USER.NOABSORBED)):
     # for icell in range(CELLS):    FABSORBED[icell,:] /= DENS[icell]
     # Faster alternative
     # FABSORBED[CELLS, NFREQ]
-    if (VERBOSE): print("Save and delete absorbed") 
+    if (VERBOSE): print("Save and delete absorbed")
+    i0 = 0
     for level in range(LEVELS):
         a, b      =   OFF[level], OFF[level]+LCELLS[level]   # index limits for cells on current level
         if (level==0):
@@ -2723,29 +2774,52 @@ if (not(USER.NOABSORBED)):
             coeff =   (8.0**level) * (FACTOR / (USER.GL*PARSEC))
         # FABSORBED[a:b]  *=  coeff                            # volume scaling
         # frequency runs faster... update one cell at a time, all frequencies 
-        if (0):
-            # This must be a slow loop... but everything processed in the storage order, in minimal amount of memory
-            for icell in range(a, b):
-                if (DENS[icell]>0.0):   
-                    FABSORBED[icell,:] *= coeff / DENS[icell]
-                else:
-                    FABSORBED[icell,:] = -1.0  # tell A2E to skip this one !!
-        else: # 2019-02-26
-            # This is faster if FABSORBED is in memory
-            # However, in a large model there may be 100e6 cells per level = tens of GB.
-            # This forces one to read and write the array twice (sparse write on the second round)
-            # -> possibly slower if one FABSORBED data for a single hierarchy level does not fit in the main memory
-            FABSORBED[a:b,:] *= coeff / DENS[a:b].reshape(b-a,1)
-            m                 = nonzero(DENS[a:b]<=0.0)
-            FABSORBED[m[0],0] = -1.0   
-
+        # 2019-02-26
+        # This is faster if FABSORBED is in memory
+        # However, in a large model there may be 100e6 cells per level = tens of GB.
+        # This forces one to read and write the array twice (sparse write on the second round)
+        # -> possibly slower if one FABSORBED data for a single hierarchy level does not fit in the main memory
+        if (USER.ABSTHIN<=1):  # all cells considered
+            FABSORBED[a:b,:]    *=  coeff / DENS[a:b].reshape(b-a,1)
+            m                    =  nonzero(DENS[a:b]<=USER.NNNLIMIT)
+            FABSORBED[a+m[0],:]  =  -1.0e20                # mark parent cells... and densities < NNNLIMIT
+            remain = len(nonzero(FABSORBED[:,0]>-1.0)[0])
+            print("########## 1>>>>>>> NNNLIMIT %.3e, remove %d, remain %d" % (USER.NNNLIMIT, len(m[0]) ,remain))
+            m    =  nonzero(FABSORBED[a:b,0]>=0.0)
+            print("##########          CELLS %d,  remain %d" % (CELLS, remain))
+            # sys.exit()
+        else:
+            ind  =  np.arange(0, CELLS, USER.ABSTHIN)   # all selected thinned cells
+            assert(len(ind)==((CELLS+USER.ABSTHIN-1)//USER.ABSTHIN))
+            ind  =  ind[nonzero((ind>=a)&(ind<b))[0]]   # the cells on the current level
+            n    =  len(ind)                            # cells on the current level = cells on level // USER.ABSTHIN
+            FABSORBED[i0:(i0+n),:]  *=  coeff / DENS[ind].reshape(n,1)
+            # print("DENSITY THINNED ", percentile(DENS[ind], (0, 1, 25, 50, 75, 95, 99, 100)))            
+            m    =  nonzero(DENS[ind]<=USER.NNNLIMIT)    # parent cells on current level... and densities < NNNLIMIT
+            FABSORBED[i0+m[0],:] = -1.0e20
+            remain = len(nonzero(FABSORBED[:,0]>-1.0)[0])
+            print("########## 2>>>>>> absthin n=%d,  remove %d,  NNNLIMIT %.3e" % (n, len(m[0]), USER.NNNLIMIT))            
+            m    =  nonzero(FABSORBED[i0:(i0+n),0]>=0.0)
+            print("##########         CELLS %d,  absthin %d,  valid %d" % (CELLS, len(ind), len(m[0])))
+            if (0):
+                clf()
+                m = nonzero(DENS>0.0)
+                hist(log10(DENS[m]), 200)
+                print(len(m[0]), percentile(DENS[m], (0, 1, 25, 50, 75, 95, 99, 100)))
+                show(block=True)
+                sys.exit()
+            ###
+            i0  +=  len(ind)
+            
             
     if (USER.SAVE_INTENSITY==3):
+        # never executed with USER.ABSTHIN>0
         # Save intensity based on the ABSORBED array
         #  I  =  n_phot * (h*nu)/(4*pi)  and   n_phot_absorbed ~ n_phot * kappa
         #  I  =           (h*nu)/(4*pi) *  n_phot_absorbed_per_cm3 / kappa_per_cm
         # 2019-03-23 -- to be consistent with SAVE_INTENSITY=1,2 options, 
         #               we now save I *** multiplied by 4*pi ***
+        assert(USER.ABSTHIN<=1)
         if (VERBOSE): print("Save intensities")
         fp = open(USER.SAVE_INTENSITY_FILE, "wb") ;
         if (NDUST>1): 
@@ -2766,8 +2840,13 @@ if (not(USER.NOABSORBED)):
 
             
     if (USER.MMAP_ABSORBED==0):
+        # e.g. with USER.ABSTHIN>0 runs
         fpa = open(USER.file_absorbed, 'wb')
-        asarray([CELLS, ONFREQ], int32).tofile(fpa) 
+        if (USER.ABSTHIN<=0):
+            asarray([CELLS, ONFREQ], int32).tofile(fpa)
+        else:
+            asarray([(CELLS+USER.ABSTHIN-1)//USER.ABSTHIN, ONFREQ], int32).tofile(fpa)
+            assert(((CELLS+USER.ABSTHIN-1)//USER.ABSTHIN)==len(FABSORBED))
         FABSORBED.tofile(fpa)
         fpa.close()
         

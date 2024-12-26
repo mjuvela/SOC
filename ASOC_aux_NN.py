@@ -64,6 +64,18 @@ def NN_fit(prefix, dustname, cells, nnabs, nnemit, file_absorbed, file_emitted, 
                 nn.LeakyReLU(),
                 nn.Linear(nnnet[2], Ne)
                 )                
+            elif (len(nnnet)==4):
+                self.layers = nn.Sequential(
+                nn.Linear(Na, nnnet[0]),
+                nn.LeakyReLU(),
+                nn.Linear(nnnet[0], nnnet[1]),
+                nn.LeakyReLU(),
+                nn.Linear(nnnet[1], nnnet[2]),
+                nn.LeakyReLU(),
+                nn.Linear(nnnet[2], nnnet[3]),
+                nn.LeakyReLU(),
+                nn.Linear(nnnet[3], Ne)
+                )                
         def forward(self, x):
             return self.layers(x)
 
@@ -72,12 +84,19 @@ def NN_fit(prefix, dustname, cells, nnabs, nnemit, file_absorbed, file_emitted, 
     model = MyNet()
     model.to(device)
 
+    A = np.fromfile(file_absorbed, np.float32)[2:].reshape(cells, Na)
+    E = np.fromfile(file_emitted,  np.float32)[2:].reshape(cells, Ne)
+
+    # Drop parent cells (those have negative absorption value for the first frequency)
+    m_leaf =  np.nonzero(A[:,0]>=0.0)
+    A      =  A[m_leaf[0], :]
+    E      =  E[m_leaf[0], :]
+    
+    cells  =  A.shape[0]
+    
     dtype = torch.float
     xObs       =  torch.zeros((cells, Na), device=device, dtype=dtype)
     yObs       =  torch.zeros((cells, Ne), device=device, dtype=dtype)
-
-    A = np.fromfile(file_absorbed, np.float32)[2:].reshape(cells, Na)
-    E = np.fromfile(file_emitted,  np.float32)[2:].reshape(cells, Ne)
     
     if (LOG):
         A = np.log10(np.clip(A, 1.0e-29, 1.0e32))
@@ -85,9 +104,6 @@ def NN_fit(prefix, dustname, cells, nnabs, nnemit, file_absorbed, file_emitted, 
     else:
         A = np.clip(A, 1.0e-29, 1.0e32)
         E = np.clip(E, 1.0e-29, 1.0e32)
-    print("--------------------------------------------------------------------------------")
-    print("DUST: %s,    CELLS: %d,    NABS: %d,     EMIT: %d" % (dustname, cells, Na, Ne))
-    print("--------------------------------------------------------------------------------")
         
     # NORMALISE, different factor for each frequency
     Ma = np.clip(np.mean(A, axis=0), 1.0e-20, 1.0e10)
@@ -108,8 +124,8 @@ def NN_fit(prefix, dustname, cells, nnabs, nnemit, file_absorbed, file_emitted, 
     yObs[:,:]  =  torch.tensor(E[:,:], device=device, dtype=dtype)
 
     loss_function  =  nn.MSELoss()
-    if (1):  optimizer  =  torch.optim.Adam(model.parameters(),  lr=0.0001) # 0.0003
-    else:    optimizer  =  torch.optim.ASGD(model.parameters(),  lr=0.0002)
+    if (1):  optimizer  =  torch.optim.Adam(model.parameters(),  lr=0.0002) # 0.0003, 0.0001
+    else:    optimizer  =  torch.optim.ASGD(model.parameters(),  lr=0.0003)
 
     MODEL = f'{prefix}_{dustname}.nn'
     try:
@@ -119,7 +135,10 @@ def NN_fit(prefix, dustname, cells, nnabs, nnemit, file_absorbed, file_emitted, 
         print("Old result not reloaded")
         pass
 
-    print('Training...')
+    print("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&")    
+    print('Training...', nnnet)
+    print("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&")
+    
     sys.stdout.flush()
     train_steps   =  nnmaxiter
     t1 = time.time()    
@@ -136,7 +155,7 @@ def NN_fit(prefix, dustname, cells, nnabs, nnemit, file_absorbed, file_emitted, 
         if (epoch%100==0):
             t0 = time.time()-t0
             print("epoch %5d   loss %9.6f   %8.4f s/epoch" % (1+epoch, current_loss, t0/100.0))
-    os.system('chroma.py 0 255 0')
+    # os.system('chroma.py 0 255 0')
     torch.save(model.state_dict(), MODEL)
     t1 = time.time()-t1
     print("@@ Training %.3f s,  %.2f epochs/s" % (t1, train_steps/t1))
@@ -156,6 +175,7 @@ def NN_fit(prefix, dustname, cells, nnabs, nnemit, file_absorbed, file_emitted, 
         for i in range(Ne): # over predicted wavelengths
             if (i>=9): break
             ax = plt.subplot(3,3,1+i)
+            plt.title("%d" % E.shape[0])
             # plot every 31st point, training value and prediction
             plt.plot(E[0::11,i], Epred[0::11,i], 'k.', alpha=0.1)
             plt.text(0.1, 0.88, r'$\rm %.1f \/ \mu m$' % f2um(nnemit[i]), transform=ax.transAxes)
@@ -181,7 +201,7 @@ def NN_fit(prefix, dustname, cells, nnabs, nnemit, file_absorbed, file_emitted, 
             # plot 1%, 5%, 10%
             plt.plot([x[1], x[5], x[10]], 100.0*np.asarray([y[1],y[5],y[10]]), 'r+', label='1,5,10-q ')
             plt.xlim(xx)
-            plt.ylim(-0.9, 15.0)
+            plt.ylim(-0.9, 35.0)
             plt.ylabel(r'$\sigma \/ \/ \rm [%s]$' % r'\%')
             plt.legend()
         plt.savefig(f'nnfit_{dustname}.png')
@@ -237,6 +257,18 @@ def NN_solve(prefix, dustname, nnabs, nnemit, file_absorbed, file_emitted='', nn
                 nn.LeakyReLU(),
                 nn.Linear(nnnet[2], Ne)
                 )                
+            elif (len(nnnet)==4):
+                self.layers = nn.Sequential(
+                nn.Linear(Na, nnnet[0]),
+                nn.LeakyReLU(),
+                nn.Linear(nnnet[0], nnnet[1]),
+                nn.LeakyReLU(),
+                nn.Linear(nnnet[1], nnnet[2]),
+                nn.LeakyReLU(),
+                nn.Linear(nnnet[2], nnnet[3]),
+                nn.LeakyReLU(),
+                nn.Linear(nnnet[3], Ne)
+                )                
         def forward(self, x):
             return self.layers(x)
 
@@ -245,18 +277,20 @@ def NN_solve(prefix, dustname, nnabs, nnemit, file_absorbed, file_emitted='', nn
     model = MyNet()
     model.to(device)
 
-
+    print("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&")
+    print("NN_solve  %s  -->  %s" % (file_absorbed, file_emitted), nnnet)
+    print("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&")
+    
     A       = np.fromfile(file_absorbed, np.float32)[2:]
+    cells   = len(A)//Na
+    A.shape = (cells, Na)
+
+    m_leaf  = np.nonzero(A[:,0]>-99)
     if (LOG):
         A = np.log10(np.clip(A, 1.0e-29, 1.0e32))
     else:
         A = np.clip(A, 1.0e-29, 1.0e32)        
-    cells   = len(A)//Na
-    A.shape = (cells, Na)
 
-    for ifreq in range(Na):
-        print("#@ solve ifreq=%d  raw abs %12.4e" % (ifreq, np.mean(A[:,ifreq])))
-    
     # normalisation factors for absorptions and emissions
     Ma = np.fromfile(f'A_{dustname}.norm', np.float32)
     Me = np.fromfile(f'E_{dustname}.norm', np.float32)
@@ -274,7 +308,12 @@ def NN_solve(prefix, dustname, nnabs, nnemit, file_absorbed, file_emitted='', nn
     # NORMALISATION A /= FF_now WAS NOT NEEDED AFTER ALL ?
     for ifreq in range(Na):  
         A[:,ifreq]  /=  Ma[ifreq] #### * FF_now[ifreq]
-        print("#@ solve ifreq=%d, %.3e Hz, normalised absorptions <> = %12.4e" % (ifreq, nnabs[ifreq], np.mean(A[:,ifreq])))
+        if (1):
+            # nnsolve => write results for all cells... although some might be parent cells
+            print("#@ solve ifreq=%d, %.3e Hz, normalised absorptions <> = %12.4e,  norm %12.4e" %
+                  (ifreq, nnabs[ifreq], np.mean(A[m_leaf[0],ifreq]), Ma[ifreq]))
+            print(np.nonzero(~np.isfinite(A[m_leaf[0], ifreq])))
+    del m_leaf
 
         
         
@@ -310,7 +349,7 @@ def NN_solve(prefix, dustname, nnabs, nnemit, file_absorbed, file_emitted='', nn
         a =  0
         while (a<cells):
             b  =  min(a+batch, cells)
-            print("...... NN_solve cells %d - %d   (%d cells)" % (a, b, b-a))
+            print("  .... NN_solve cells %d - %d   (%d cells)" % (a, b, b-a))
             # xObs[0:(b-a),:]  =  torch.tensor(A[a:b,:], device=device, dtype=dtype)
             xObs[0:(b-a),:]  =  torch.from_numpy(A[a:b,:])
             Epred[a:b,:]     =  model(xObs).cpu().detach().numpy()[0:(b-a),:]
@@ -330,7 +369,7 @@ def NN_solve(prefix, dustname, nnabs, nnemit, file_absorbed, file_emitted='', nn
     # NORMALISED, NN was mapping absorbed*1e20/FF/Ma  <-> emitted/Me => return emitted
     for i in range(Ne):  Epred[:,i] *= Me[i]
 
-    print("NN_solve => normalised emission %d x %d = cells %d" % (Epred.shape[0], Epred.shape[1], cells))
+    # print("NN_solve => normalised emission %d x %d = cells %d" % (Epred.shape[0], Epred.shape[1], cells))
     
     if (len(file_emitted)<1):
         return Epred

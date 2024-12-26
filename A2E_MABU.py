@@ -59,6 +59,7 @@ if (len(sys.argv)<2):
     print("2024-09-14 -- if options include nnmake, nnthin =>")
     print("              nnthin must be applied also to abundances here (if given)")
     print("2024-09-29 -- nnnet and nnmaxiter optionally read from ini")
+    print("2024-12-24 -- with absthin, also abundances need to be thinned")
     sys.exit()
 
     
@@ -87,7 +88,8 @@ CLOUD       =  None
 KDENSITY    =  1.0
 
 nnabs, nnemit, nnmake, nnsolve, nngpu = [], [], '', '', 0
-nnthin    = 1    # not used here, only in A2E_driver... except for the abundances
+nnthin    = 1    # used in A2E_MABU, here used only for thinning abundances
+absthin   = 1    # used in ASOC.py,  here used only for thinning abundances
 nnmaxiter = 3000
 nnnet     = [13, 17, 13]
 
@@ -176,20 +178,24 @@ for line in fp.readlines():
         nnsolve = s[1]
     if (s[0].find('nnthin')>=0):        # A2E_driver has taken care of nnthin in absorbed.data,
         nnthin = int(s[1])              # nnthin is applied to abundances in this file !!
+    if (s[0].find('absthin')>=0):       # This was included already in ASOC.py, producing smaller absorbed.data
+        absthin = int(s[1])             # nnthin is applied to abundances in this file !!
     if (s[0].find('nngpu')>=0):         # use GPU for NN calculations
         nngpu  = int(s[1])
     # nnmake  =>  full sets of frequencies on absorbed, in dusts
     # nnsolve =>  absorbed.data only for nnabs, emitted.data only for nnemit wavelengths
-    # nnmake + nnthin => apply nnthin also to abundances
+    # nnmake + nnthin =>  apply nnthin also to abundances
+    # nnmake + absthin => apply nnthin also to abundances
+    # nnmake  => drop also parent cells before calling NN fitting...
     if (s[0].find('tmpdir')>=0):  
         # split absorptions and emission not in necessarily in /dev/shm but...
         # ini-file  "tmpdir ."  =>  split abs/emit saved not in /dev/shm but in the current directory
         ASHAREDIR = s[1]
         ESHAREDIR = s[1]
         print("A2E_MABU.py split absorbed and emittted to directories %s and %s" % (ASHAREDIR, ESHAREDIR))
-    if (s[0].find('nnmaxiter')>=0):
+    if (s[0].find('nnmaxiter')==0):
         nnmaxiter = int(s[1])
-    if (s[0].find('nnnet')>=0):
+    if (s[0].find('nnnet')==0):
         nnnet = []
         for i in range(1, len(s)):
             if (s[i][0:1]=='#'): break
@@ -202,11 +208,11 @@ fplog.write("%s ->  GPU=%d\n" % (sys.argv[1], GPU))
 
 print("================================================================================")
 print("A2E_MABU dusts: ", DUST)
-print("nnmake  ", nnmake)
-print("nnsolve ", nnsolve)
-print("nnthin  ", nnthin)
-if (len(nnabs)>0):  print("nnabs   ", f2um(nnabs))
-if (len(nnemit)>0): print("nnemit  ", f2um(nnemit))
+print(" nnmake  ", nnmake)
+print(" nnsolve ", nnsolve)
+print(" nnthin  ", nnthin)
+if (len(nnabs)>0):  print(" nnabs   ", f2um(nnabs))
+if (len(nnemit)>0): print(" nnemit  ", f2um(nnemit))
 print("================================================================================")
 
 
@@ -323,9 +329,11 @@ print('NOFREQ LIMITED TO %d --- currently only for eqdust solved inside A2E_MABU
 # file of absorptions should start with three integers
 # in case of nnmake+nnthin, CELLS is less than the full model, less than the size
 # of the abundance files
-H             =  np.fromfile(sys.argv[2], np.int32, 2)
+H             =  np.fromfile(sys.argv[2], np.int32, 2)  # absorbed.data
 CELLS, NFFREQ =  H[0], H[1]
 print("=== Absorption file:  CELLS %d, NFFREQ %d, NFREQ %d, NDUST %d" % (CELLS, NFFREQ, NFREQ, NDUST))
+# for absthin and nnthin CELLS is the number of cells after thinning...
+# same thinning must be applied later to abundances
 
 # Convert RABS[NFREQ, NDUST] to better normalised relative cross section
 RABS    = clip(RABS, 1.0e-40, 1.0e30)   # must not be zero 
@@ -652,12 +660,18 @@ fplog.write("\nAbsorption file: CELLS %d, NFREQ %d, NDUST %d\n" % (CELLS, NFREQ,
 
 
 # Read abundance files... we must have enough memory for that
-print("Reading abundances for %d cells" % CELLS)
-ABU = np.ones((CELLS, NDUST), np.float32) # for nnmake+nnthin CELLS < abundance elements
+# For absthin and nnthin, CELLS = number of cells after thinning
+# print("Reading abundances for %d cells" % CELLS)
+ABU = np.ones((CELLS, NDUST), np.float32) # for nnmake+nnthin/absthin CELLS < abundance elements
 for idust in range(NDUST):
     if (len(AFILE[idust])>1): # we have a file for the abundance of the current dust species
-        if ((len(nnmake)>0)&(nnthin>1)):
+        # it may be possble to use both absthin and nnthin (in that order)
+        if ((len(nnmake)>0)&(absthin>1)&(nnthin>1)):
+            ABU[:,idust] = np.fromfile(AFILE[idust], np.float32)[0::absthin][0::nnthin]
+        elif ((len(nnmake)>0)&(nnthin>1)):
             ABU[:,idust] = np.fromfile(AFILE[idust], np.float32)[0::nnthin]
+        elif ((len(nnmake)>0)&(absthin>1)):
+            ABU[:,idust] = np.fromfile(AFILE[idust], np.float32)[0::absthin]
         else:
             ABU[:,idust] = np.fromfile(AFILE[idust], np.float32, CELLS)
 #for idust in range(NDUST):
@@ -855,7 +869,8 @@ for IDUST in range(NDUST):
             asarray(tmp, float32).tofile('NN_ABS_%s.dump' % DUST[IDUST])
             
             
-        NN_solve(nnsolve, DUST[IDUST], nnabs, nnemit, ASHAREDIR+'/tmp.absorbed', ESHAREDIR+'/tmp.emitted', nngpu=nngpu, nnnet=nnnet)
+        NN_solve(nnsolve, DUST[IDUST], nnabs, nnemit,
+                 ASHAREDIR+'/tmp.absorbed', ESHAREDIR+'/tmp.emitted', nngpu=nngpu, nnnet=nnnet)
 
         
         if (0): # @@@
@@ -867,8 +882,12 @@ for IDUST in range(NDUST):
                 
                 
         if (1):
-            if (len(nnemitted)<1): nnemitted  = np.multiply(fromfile(ESHAREDIR+'/tmp.emitted', float32)[2:].reshape(CELLS, Ne), ABU[:, IDUST:(IDUST+1)])
-            else:                  nnemitted += np.multiply(fromfile(ESHAREDIR+'/tmp.emitted', float32)[2:].reshape(CELLS, Ne), ABU[:, IDUST:(IDUST+1)])
+            if (len(nnemitted)<1):
+                nnemitted  = np.multiply(fromfile(ESHAREDIR+'/tmp.emitted', float32)[2:].reshape(CELLS, Ne),
+                                         ABU[:, IDUST:(IDUST+1)])
+            else:
+                nnemitted += np.multiply(fromfile(ESHAREDIR+'/tmp.emitted', float32)[2:].reshape(CELLS, Ne),
+                                         ABU[:, IDUST:(IDUST+1)])
         else:
             if (len(nnemitted)<1): 
                 nnemitted  =  zeros((CELLS, Ne), float32)
@@ -903,9 +922,7 @@ for IDUST in range(NDUST):
         #                 CR heating takes into account density-dependent coupling
         #                 heating is split between the dust species in proportion of kabs
         #                 in practice, the CR heating rate is transmitted to kernel in the last frequency channel!
-        print()
         print("=== SolveEquilibriumDust(%s) === ..... GPU = " % DUST[IDUST], GPU)
-        print()
         nofreq = SolveEquilibriumDust(DUST[IDUST], ASHAREDIR+'/tmp.absorbed', ESHAREDIR+'/tmp.emitted', 
         UM_MIN, UM_MAX, MAP_UM, GPU, platforms, AALG)
         fplog.write("      SolveEquilibriumDust(%s) => nofreq %d, NOFREQ %d\n" % (DUST[IDUST], nofreq, NOFREQ))
@@ -1017,14 +1034,12 @@ for IDUST in range(NDUST):
         assert(nf==NFREQ)  # must be the full frequency grid
         # extract absorptions only for the frequencies in nnabs
         tmp          = fromfile(ASHAREDIR+'/tmp.absorbed', float32)[2:].reshape(cells, nf)[:, IND_nnabs]
-        if (0):
-            for ifreq in range(nfreq):
-                print("#@ make  ifreq=%d  raw abs %12.4e" % (ifreq, np.mean(tmp[:,ifreq])))
+        
         ###
         #if (0): # NORMALISATION WITH FF WAS NOT NEEDED AFTER ALL ????
         #    for ifreq in range(nfreq):          # remove FF by dividing by it
         #        tmp[:,ifreq] /= FF_now[ifreq]   # ... including ad hoc 1e20 scaling for absorptions going into NN
-        #        print("#@ make  ifreq=%d, %.3e Hz,  FF %12.4e  normalised absorptions <> = %12.4e" % (ifreq, nnabs[ifreq], FF_now[ifreq], np.mean(tmp[:,ifreq])))
+        #        print("#@ make  ifreq=%d, %.3e Hz, FF %12.4e  normalised absorptions <> = %12.4e" % (ifreq, nnabs[ifreq], FF_now[ifreq], np.mean(tmp[:,ifreq])))
         with open(ASHAREDIR+'/nn.absorbed', 'wb') as fp:
             asarray([cells, len(nnabs)], int32).tofile(fp)
             asarray(tmp, float32).tofile(fp)
@@ -1080,7 +1095,7 @@ for IDUST in range(NDUST):
         
     fp2              =  open(filename, 'rb')
     cells_e, nfreq_e =  np.fromfile(fp2, np.int32, 2)  # get rid of the header (CELLS, NFREQ)
-    print("    emitted file for %s, cells %d, CELLS %d, nfreq %d, NOFREQ %d" % (DUST[IDUST], cells_e, CELLS, nfreq_e, NOFREQ))
+    # print("    emitted file for %s, cells %d, CELLS %d, nfreq %d, NOFREQ %d" % (DUST[IDUST], cells_e, CELLS, nfreq_e, NOFREQ))
     fplog.write('      Add emission from %s .... processing %s with NOFREQ=%d\n' % (filename, DUST[IDUST], NOFREQ))    
 
     fp2P = None
@@ -1138,7 +1153,7 @@ for IDUST in range(NDUST):
         os.system('mv -f %s  tmp.emitted.%s' % (filename, DUST[IDUST]))
     
 
-print("DONE !!!")
+print("A2E_MABU.py DONE !!!")
 ## os.system('ls -l emitted.data')
 
         

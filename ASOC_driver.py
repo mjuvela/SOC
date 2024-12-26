@@ -40,10 +40,13 @@ spatially varying dust abundances.
     
     nnmake         ==>     all frequencies in asborbed.data and emitted.data
                            while NN is trained, output emitted.data still constains all frequencies
-    nnmake + thin  ==>     ASOC_driver calls A2E_MABU with absorbed[CELLS::nnthin, :],
+    nnmake + nnthin  ==>   ASOC_driver calls A2E_MABU with absorbed[CELLS::nnthin, :],
                            emitted.data will be incomplete = contain only some cells
                            => map making can proceed but for nnemit frequencies only
-    nnsolve        ==>     RT and maps using nnabs/nnemit frequencies only        
+    nnsolve        ==>     RT and maps using nnabs/nnemit frequencies only
+2024-12-25
+    nnmake + absthin ==>   ASOC saves absorptions only for every USER.ABSTHIN:th cell
+                           (similar to nnthin but already cutting down the size of the absorbed.data file)
 """
 
 if (len(sys.argv)<2):
@@ -68,12 +71,13 @@ def get_floats(s):
     # for list of strings, return maximum number of floats that could be read
     res = []
     for i in range(len(s)):
-        print(s[i])
+        if (s[i][0:1]=="#"): break 
         try:
             x = float(s[i])
             res.append(x)
         except:
-            pass
+            ## pass
+            break
     return np.asarray(res, np.float32)
 
 
@@ -85,7 +89,7 @@ def f2um(freq):
 
 
 # for nnmake + nnthin,  ASOC_driver will call A2E_MABU with a smaller absorbed files
-nnabs, nnemit, nnmake, nnsolve, nnthin = [], [], '', '', 1
+nnabs, nnemit, nnmake, nnsolve, nnthin, absthin = [], [], '', '', 1, 1
 nenumber = 256
 
 # Make a list of the dusts ... AND ABUNDANCE FILES, IF GIVEN
@@ -122,6 +126,8 @@ for line in LINES:
         nnsolve = s[1]
     if (s[0].find('nnthin')>=0):       # A2E_driver has taken care of nnthin already
         nnthin = int(s[1])             # in absorbed.data
+    if (s[0].find('absthin')>=0):      # ASOC saved absortions only for every absthin:th cell
+        absthin = int(s[1])            # in absorbed.data
     if (s[0].find('nenumber')>=0):
         nenumber = int(s[1])   
      
@@ -147,7 +153,6 @@ if (len(nnemit)>0):
             print("*** Error in A2E_MABU: nnemit %.3f um does not correspond to any frequency" % f2um(nnemit[i]))
             sys.exit()
         IND_nnemit[i] = k  #    FREQ[IND_nnemit[i]] ~ nnemit[i]
-
 
 STOCHASTIC = np.asarray(STOCHASTIC, np.int32)
 NDUST      = len(DUST)
@@ -237,6 +242,7 @@ if (len(nnsolve)>0):
     #   - dusts       
     #   - background               "background  some.bg  1.5 1"
     #   - pointsource luminosity   "pointsource 1.1 2.2 3.3  luminosity.bin 4.1"
+
     fp = open('rt_simple_nn.ini', 'w')
     for line in open('rt_simple.ini').readlines():
         s = line.split()
@@ -339,12 +345,20 @@ fpo.close()
 # if one is making a NN mapping (nnmake) and ini contained keyword nnthin, 
 # feed A2E_MABU.py only absorbed[0::nnthin, :], data for every nnthin:th cell
 # emitted.data contains all frequencies and maps can be written.... unless nnthin>1 !
+# ... so also for nnthin>1 we use the normal name of the emitted file
 if ((len(nnmake)>0)&(nnthin>1)):
-    print("ASOC_driver, nnmake %s, nnthin %d .... fabs %s" % (nnmake, nnthin, fabs))
+    # print("ASOC_driver, nnmake %s, nnthin %d .... fabs %s" % (nnmake, nnthin, fabs))
     H = np.fromfile(fabs, np.int32, 2)
-    cells, nfreq = H
+    cells, nfreq = H   #  cells = original total number of cells
     # read and write in one go
     tmp  =  np.fromfile(fabs, np.float32)[2:].reshape(cells, nfreq)[0::nnthin, :]
+    if (0): # drop parent cells !!!
+        # No - parent cells are dropped only in ASOC_aux.NN.py,
+        # to avoid complications with abundance file in A2E_MABU.py
+        assert(1==0)
+        m   = np.nonzero(tmp[:,0]>-1.0)    # ok, not parent cell
+        print("###  REMOVE PARENTS =>  %d -> %d -> %d" % (cells, len(tmp), len(m[0])))
+        tmp = tmp[m[0],:].copy()
     H[0] =  tmp.shape[0]  # new number of cells
     fabs = 'thin.abs'     # replaces original absorption file
     fp3  =  open(fabs, 'wb')
@@ -370,10 +384,9 @@ else:
 # Second SOC run -- compute maps 
 # remove the "nomap" option and replace stochastic dusts with corresponding simple dusts
 
-if ((len(nnmake)>0)&(nnthin>1)):
-    print("nnmake + nnthin>1 => current emitted.data does not contain data for all cells")
+if ((len(nnmake)>0)&((absthin>1)|(nnthin>1))):
+    print("nnmake + [nnthin>1 | absthin>1]=> current emitted.data does not contain data for all cells")
     print(" => map making is skipped")
-    print("   (or one should automatically use the created library to write emission and then make the maps)")
     sys.exit()
     
     
