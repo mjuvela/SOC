@@ -21,12 +21,11 @@
 #define F2I(x)    (*(__global int*)&x)   //  __global BUFFER -> OTI
 #define I2F(x)    (*(float *)&x)         //           OTI    -> __global BUFFER
 
-
 #if 1 // ------------------------------------------------------------
 # if (LEVELS<3)  // low hierarchy, float works better
 #  define DIMLIM 399
 # else            // deep hierarchy, move to double earlier
-#  define DIMLIM 199
+#  define DIMLIM 100  // 2025-01-16 previous "199" was too much !
 # endif
 #else // ------------------------------------------------------------
 # if 1
@@ -35,6 +34,7 @@
 #  define DIMLIM 100 // if base grid NX is larger, use double precision for position
 # endif
 #endif // ------------------------------------------------------------
+
 
 
 #if (NX>DIMLIM)  // from Index()

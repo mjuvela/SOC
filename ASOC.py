@@ -99,19 +99,13 @@ if (not(USER.Validate())):
     print("Check the inifile... exiting!"),  sys.exit()
 
 
-if (USER.ABSTHIN>0):
-    # only absorptions calculated, only for every USER.ABSTHIN:th cell
-    USER.ITERATIONS     = 1
-    USER.NOSOLVE        = 1
-    USER.NOMAP          = 1
+if (not('nnmake' in USER.KEYS)):
+    USER.ABSTHIN = -1
+    
+if (USER.ABSTHIN>1):
     USER.SAVE_INTENSITY = 0
-    # this should be used only before A2E_MABU.py run with "nnmake" in the ini file
-    # we test for this keyword here, although that is used only by A2E_MABU.py script
-    # we also make the assumption that "absthin" implies USER.MMAP_ABSORBED=False
-    if (not('nnmake' in USER.KEYS)):
-        print("*** WARNING: option absthin can be used *only* before A2e_MABU.py with nnmake")
-        USER.MMAP_ABSORBED = False
-        time.sleep(5)
+    USER.MMAP_ABSORBED  = False
+
         
     
 # Read optical data for the dust model, updates USER.NFREQ
@@ -1473,7 +1467,7 @@ else:
                     # ... iff FABSORBED is mmap file => use "mmapabs 0", if possible                      
                     # vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
                     tx = time.time()
-                    # this never executed with USER.ABSTHIN>0
+                    # this never executed with USER.ABSTHIN>1
                     if (USER.ABSTHIN<=1):
                         FABSORBED[:, OIFREQ] += TMP ;  # all scalings later; using OIFREQ <= IFREQ (in case LIB_ABS)
                     else:
@@ -2475,7 +2469,7 @@ if ('SUBITERATIONS' in USER.KEYS):
                     commands[ID].finish()                    
                     if (not(USER.NOABSORBED)):
                         if (USER.ABSTHIN<=1):
-                            FABSORBED[:, OIFREQ] += TMP  # never executed with USER.ABSTHIN>0
+                            FABSORBED[:, OIFREQ] += TMP  # never executed with USER.ABSTHIN>1
                         else:
                             FABSORBED[:, OIFREQ] += TMP[0::USER.ABSTHIN]
                     if (USER.SAVE_INTENSITY==1):
@@ -2813,7 +2807,7 @@ if (not(USER.NOABSORBED)):
             
             
     if (USER.SAVE_INTENSITY==3):
-        # never executed with USER.ABSTHIN>0
+        # never executed with USER.ABSTHIN>1
         # Save intensity based on the ABSORBED array
         #  I  =  n_phot * (h*nu)/(4*pi)  and   n_phot_absorbed ~ n_phot * kappa
         #  I  =           (h*nu)/(4*pi) *  n_phot_absorbed_per_cm3 / kappa_per_cm
@@ -2840,9 +2834,9 @@ if (not(USER.NOABSORBED)):
 
             
     if (USER.MMAP_ABSORBED==0):
-        # e.g. with USER.ABSTHIN>0 runs
+        # e.g. with USER.ABSTHIN>1 runs
         fpa = open(USER.file_absorbed, 'wb')
-        if (USER.ABSTHIN<=0):
+        if (USER.ABSTHIN<=1):
             asarray([CELLS, ONFREQ], int32).tofile(fpa)
         else:
             asarray([(CELLS+USER.ABSTHIN-1)//USER.ABSTHIN, ONFREQ], int32).tofile(fpa)

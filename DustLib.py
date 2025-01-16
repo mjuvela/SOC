@@ -1956,7 +1956,16 @@ def write_DUSTEM_files(dustem_file='', DIR=''):
     
 
 
-def write_A2E_dustfiles(DNAME, DUST, NE_ARRAY=[], prefix='gs_', amin_equ=1e10):
+def  get_max_tdust(a):
+    # Guess suitable maximum temperature based on grain sizes
+    #     3e-4 um  =   3e-8 cm  =>  3000.0 
+    #     4e-3 um  =   4e-7 cm  =>   150.0
+    res  =  log(3000.0)  +  (log(a)-log(3.0e-8))/(log(4.0e-7)-log(3.0e-8)) * (log(150.0)-log(3000.0))
+    return clip(exp(res), 90.0, 3000.0)
+
+
+
+def write_A2E_dustfiles(DNAME, DUST, NE_ARRAY=[], prefix='gs_', amin_equ=1e10, Tgrid=[]):
     """
     Write the dust files for A2E  *** NATIVE CRT FORMAT ***
     Input:
@@ -1965,7 +1974,8 @@ def write_A2E_dustfiles(DNAME, DUST, NE_ARRAY=[], prefix='gs_', amin_equ=1e10):
         NE_ARRAY  = list of number of energy bins, each dust
         prefix    = file prefix, default is gs_
         amin_equ  = minimum grain size [um] for which use eq. solver
-                    (sets nstoch)        
+                    (sets nstoch)
+        Tgrid     = Tgrid[ndust, 4] = { Tmin_amin, Tmax_amin, Tmin_amax, Tmax_amax }
     Output:
         dust files sg<dustname>.dust
         and the corresponding files
@@ -2028,19 +2038,24 @@ def write_A2E_dustfiles(DNAME, DUST, NE_ARRAY=[], prefix='gs_', amin_equ=1e10):
         tmp  =  dust.CRT_SFRAC * 1.0
         tmp  =  tmp / sum(tmp)
 
-        Tmax =  logspace(log10(2500.0), log10(150.0), dust.NSIZE)
-
+        if (len(Tgrid)<1):
+            tmin =  3.0*ones(dust.NSIZE, float32)
+            tmax =  get_max_tdust(dust.SIZE_A)
+        else:
+            #        { Tmin_amin, Tmax_amin,   Tmin_amax, Tmax_amax }
+            tmin   = logspace( log10(Tgrid[idust, 0]),  log10(Tgrid[idust, 2]), dust.NSIZE)
+            tmax   = logspace( log10(Tgrid[idust, 1]),  log10(Tgrid[idust, 3]), dust.NSIZE)
+            
         fp.write('#  SIZE [um]    S_FRAC      Tmin [K]   Tmax [K]\n')
         nstoch = -1
         tag    = 'SHG'
         for isize in range(dust.NSIZE):
-            #  Tmin and Tmax not used by A2E ???
             if (nstoch<0):
                 if ((1.0e4*dust.SIZE_A[isize])>amin_equ):
                     nstoch = isize # number of grain sizes treated as stochastic
                     tag = 'EQ'
             fp.write('  %12.5e %12.5e  %10.3e %10.3e  # %s\n' % 
-            (1.0e4*dust.SIZE_A[isize], tmp[isize], 4.0, Tmax[isize], tag))
+            (1.0e4*dust.SIZE_A[isize], tmp[isize],   tmin[isize], tmax[isize], tag))
         fp.close()
         if (nstoch<0): nstoch = 999 ;  # no amin_equ or all grains smaller
         
