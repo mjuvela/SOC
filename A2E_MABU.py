@@ -368,12 +368,13 @@ PLANCK  =  6.62606957e-27
 H_K     =  4.79924335e-11 
 D2R     =  0.0174532925       # degree to radian
 PARSEC  =  3.08567758e+18 
-H_CC    =  7.372496678e-48 
+# H_CC    =  7.372496678e-48
+H_CC20  =  7.372496678e-28
 
 
 def PlanckSafe(f, T):  # Planck function
     # Add clip to get rid of warnings
-    return 2.0*H_CC*f*f*f / (np.exp(np.clip(H_K*f/T,-100,+100))-1.0)
+    return 2.0e-20*((H_CC20*f)*f)*f / (np.exp(np.clip(H_K*f/T,-100,+100))-1.0)
 
 
 def opencl_init(GPU, platforms, verbose=False):
@@ -477,6 +478,9 @@ def SolveEquilibriumDust(dust, f_absorbed, f_emitted, UM_MIN=0.0001, UM_MAX=9999
     gr     =  float(lines[2].split()[0])
     d      =  np.loadtxt(dust, skiprows=4)
     FREQ   =  np.asarray(d[:,0].copy(), np.float32)
+    # @???@
+    # KABS   =  np.asarray(d[:,2] * gd * np.pi, np.float32)   # @DT@  cross section PER UNIT DENSITY, divided now by gr**2
+    # @???@
     KABS   =  np.asarray(d[:,2] * gd * np.pi*gr**2.0, np.float32)   # cross section PER UNIT DENSITY
     # Start by making a mapping between temperature and energy
     NE     =  30000
@@ -516,7 +520,7 @@ def SolveEquilibriumDust(dust, f_absorbed, f_emitted, UM_MIN=0.0001, UM_MAX=9999
     kernel_T.set_scalar_arg_dtypes([np.int32, np.float32, np.float32, np.float32, np.int32 , None,  None, None, None])
     FREQ_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=FREQ)
     TTT_buf     =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=TTT)
-    KABS_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=KABS)
+    KABS_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=KABS) # @DT@ does not include gr**2  @???@
     ABS_buf     =  cl.Buffer(context, mf.READ_ONLY,  4*GLOBAL*NFREQ)  # batch of GLOBAL cells
     T_buf       =  cl.Buffer(context, mf.READ_WRITE, 4*CELLS)
     EMIT_buf    =  cl.Buffer(context, mf.WRITE_ONLY, 4*CELLS)
@@ -903,7 +907,7 @@ for IDUST in range(NDUST):
             nnemitted.tofile(fp3)  #  nnemitted[CELLS, Ne]
             fp3.close()
             del nnemitted
-            os.system('ls -l %s' % sys.argv[3])
+            # os.system('ls -l %s' % sys.argv[3])
             break
         # print(" A2E_MABU.py:667 calling NN_solve: %.3f\n\n" % (time.time()-t0000))
         assert(FPE==[])
@@ -991,10 +995,8 @@ for IDUST in range(NDUST):
                           (DUST[IDUST], ASHAREDIR, ESHAREDIR, GPU_TAG, nstoch, em_ifreq))
 
                 
-        #if (DUST[IDUST]=='CMCa'):
-        #    print("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
-        #    time.sleep(30)
-        #    sys.exit()
+
+        print("NOFREQ %d,  NFREQ %d" % (NOFREQ, NFREQ))
 
         if (NOFREQ!=NFREQ):  # so far only equilibrium dust files can have NOFREQ<NFREQ !!
             print("=== A2E_MABU.py --- stochastically heated grains with equilibrium grains")
@@ -1004,7 +1006,12 @@ for IDUST in range(NDUST):
             else:
                 print("... EXCEPT IT IS OK TO HAVE JUST A SINGLE OUTPUT FREQUENCY !!")
 
-                
+
+    print("---------------------------------------------------------------------------------------------------")
+    print("---------------------------------------------------------------------------------------------------")
+    print("A2E run completed, next possibly nnmake..... nnmake = %s !" % nnmake)
+    print("---------------------------------------------------------------------------------------------------")
+    print("---------------------------------------------------------------------------------------------------")
 
     if (len(nnmake)>0): 
         # we have calculated mapping ASHAREDIR+'/tmp.absorbed' ->  ESHAREDIR+'/tmp.emitted' for all frequencies

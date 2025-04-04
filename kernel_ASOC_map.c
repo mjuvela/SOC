@@ -27,6 +27,10 @@
 # define OTYPE float
 #endif
 
+// @DT@ Jan2025
+#define getIND(i,j) (i+j*90)
+#define getOPT(ind) (2*ind)
+
 // #pragma OPENCL EXTENSION cl_khr_fp16: enable
 
 
@@ -1690,5 +1694,353 @@ __kernel void PolMapping(
 
 
 
+// @DT@ Jan2025
+#if (POLSTAT==4 || POLSTAT ==5)
 
+__kernel void PolMapping(
+                         const      float    MAP_DX,     //  0 - pixel size in grid units
+                         const      int2     NPIX,   //  1 - map dimensions (square map)
+                         __global   float   *MAP,    //  2 - I[], Q[], U[], column density
+//			 __global   float   *MAP_3DLOS,	//  
+//                         __global   float   *EMIT,   //  3 - emitted
+                         const      float3   DIR,    //  4 - direction of observer
+                         const      float3   RA,     //  5
+                         const      float3   DE,     //  6
+                         constant   int     *LCELLS, //  7 - number of cells on each level
+                         constant   int     *OFF,    //  8 - index of first cell on each level
+                         __global   int     *PAR,    //  9 - index of parent cell
+                         __global   float   *DENS,   // 10 - density and hierarchy
+  //                       __global   float   *ABS,    // 11
+  //                       __global   float   *SCA,    // 12
+                         const      float3   CENTRE, // 13
+                         const      float3   INTOBS, // 14 position of internal observer
+//                         __global   float    *THETA,  // 15
+                         __global   float     *TNEW,   //16
+      		       	 const	    float     freq,   //17
+                         __global   float   *Bx,     // 18 magnetic field vectors
+                         __global   float   *By,     // 19
+                         __global   float   *Bz,     // 20
+                         __global   float   *OPT,    // 21 #varying abundance
+			 __global   float   *TNEW1,    // 21 #varying abundance
+                         __global   float    *C_mean,    //22 mean (0.5(C_parallel-C_perp)): Cabs, Csca, Cext
+                         __global   float    *delta_C_ext, //23 C_parallel - C_perpendicular
+                         __global   float    *delta_C_abs, //24
+	                 __global   float    *R_ALGN,      //25 index of smallest aligned grain size
+                         __global   float    *a_align   //26 The array of the aligned radius we
+ 			 )
+{
+   const int id   = get_global_id(0) ;  // one work item per map pixel
+   if (id>=(NPIX.x*NPIX.y)) return ;
+   float  DTAU, TAU=0.0f, colden = 0.0f ;
+   float4 PHOTONS,PHOTONS_OLD ;
+   float3 POS, TMP, BN,DIR_B ;
+   float  dtheta, mag_theta ;
+   float  INTENSITY_OLD, tauA, tauE, tauCPOL, tauPOL, g ;
+#if (POLSTAT==5)
+   float d_factor = 1.0f;
+# else
+   float d_factor = 0.0f ;
+#endif
+#if (WITH_ABU>0)
+   float  C_absmean=C_mean[0], C_scamean=C_mean[2], C_extmean=C_mean[4] ;
+   float  C_absmean1=C_mean[1], C_scamean1=C_mean[3], C_extmean1=C_mean[5] ;
+# else
+   float  C_absmean=C_mean[0], C_scamean=C_mean[1], C_extmean=C_mean[2] ;
+# endif
+   float  H_CC    =  7.372496678e-8f ; // planck*1e23*PARSEC/c**2 this normalisation is not used. all constants are grouped in PSOC
+   float  PLANCK  =  6.62606957e-27f ;
+   float  sx, sy, sz ;
+   float  dx,ix ;
+   float  d_align  = (a_align[1]- a_align[0]) ;
+   int    ind, level, oind, olevel,a_ind ;
+   int    i = id % NPIX.x ;   // longitude runs faster
+   int    j = id / NPIX.x ;
+   int    itheta,it,nx =50;
+# if (WITH_ABU>0)
+   float  C_x_ext1, C_y_ext1, C_x_abs1,C_y_abs1, C_abs1, C_sca1, C_ext1, C_pol1, C_cpol1;
+   float  C_x_ext2, C_y_ext2, C_x_abs2,C_y_abs2, C_abs2, C_sca2, C_ext2, C_pol2, C_cpol2;
+# endif
+   float  C_x_ext, C_y_ext, C_x_abs,C_y_abs, C_abs, C_sca, C_ext, C_pol, C_cpol;
+
+   PHOTONS.x = 0.0f ;  PHOTONS.y = 0.0f ;  PHOTONS.z = 0.0f ; PHOTONS.w = 0.0f ;
+   PHOTONS_OLD.x = 0.0f ;  PHOTONS_OLD.y = 0.0f ;  PHOTONS_OLD.z = 0.0f ; PHOTONS_OLD.w = 0.0f ;
+
+
+   // normal external map
+   //    RA increases left !!!,  DE increases UP
+   // note the direction of X axis !!
+   POS.x = CENTRE.x + (i-0.5f*(NPIX.x-1))*MAP_DX*RA.x + (j-0.5f*(NPIX.y-1))*MAP_DX*DE.x ;
+   POS.y = CENTRE.y + (i-0.5f*(NPIX.x-1))*MAP_DX*RA.y + (j-0.5f*(NPIX.y-1))*MAP_DX*DE.y ;
+   POS.z = CENTRE.z + (i-0.5f*(NPIX.x-1))*MAP_DX*RA.z + (j-0.5f*(NPIX.y-1))*MAP_DX*DE.z ;
+   // find position on the front surface (if exists)
+  // POS -=  (NX+NY+NZ)*DIR ;   // move behind the cloud
+   POS +=  (NX+NY+NZ)*DIR ;   // move infront the cloud
+   TMP   = -DIR ; // DIR towards observer, TMP away from the observer
+   // find last crossing -- DIR pointing towards observer -- go to front surface
+                                                                                                                                                                                                                       
+  if (DIR.x>=0.0f)    sx = (0.0f      - POS.x) / (TMP.x+1.0e-10f) - EPS ;
+   else                sx = (NX    - POS.x) /  TMP.x - EPS ;
+   if (DIR.y>=0.0f)    sy = (0.0f      - POS.y) / (TMP.y+1.0e-10f) - EPS ;
+   else                sy = (NY    - POS.y) /  TMP.y - EPS ;
+   if (DIR.z>=0.0f)    sz = (0.0f      - POS.z) / (TMP.z+1.0e-10f) - EPS ;
+   else                sz = (NZ    - POS.z) /  TMP.z - EPS ;
+   // select largest value that still leaves POS inside the cloud (cloud may be missed)
+   TMP = POS - sx*DIR ;
+   if ((TMP.x<=0.0f)||(TMP.x>=NX)||(TMP.y<=0.0f)||(TMP.y>=NY)||(TMP.z<=0.0f)||(TMP.z>=NZ)) sx = 1e10f ;
+   TMP = POS - sy*DIR ;
+   if ((TMP.x<=0.0f)||(TMP.x>=NX)||(TMP.y<=0.0f)||(TMP.y>=NY)||(TMP.z<=0.0f)||(TMP.z>=NZ)) sy = 1e10f ;
+   TMP = POS - sz*DIR ;
+   if ((TMP.x<=0.0f)||(TMP.x>=NX)||(TMP.y<=0.0f)||(TMP.y>=NY)||(TMP.z<=0.0f)||(TMP.z>=NZ)) sz = 1e10f ;
+   //
+   sx    =  min(sx, min(sy, sz)) ;
+   POS   =  POS - sx*DIR ;
+   TMP   = DIR ; // DIR towards observer, TMP away from the observer
+   //P   = DIR ; // DIR towards observer, TMP away from the observer
+
+   // Index
+   IndexG(&POS, &level, &ind, DENS, OFF) ;
+   // printf("POS %8.4f %8.4f %8.4f  ind %d\n", POS.x, POS.y, POS.z, ind) ;
+
+# if (DEBUG>0)
+   CheckPos(&POS, &DIR, &level, &ind, DENS, OFF, PAR, 1) ;
+# endif
+
+
+   // See Planck XX
+   // 2017-01-13  -- update the formula for total intensity, including p0 as a parameter
+   //        sz = exp(-TAU) * ((1.0f-exp(-DTAU))/DTAU) * sx * EMIT[oind]*DENS[oind]
+   //
+   //  OLD   I +=       sz ;
+   //  NEW   I +=       sz  *   ( 1 + p0*(cc-0.6666666667)) ;
+   //
+   //  OLD   Q +=       sz  *   cos(2.0f*Psi)*cc  *  length(B[oind])
+   //  NEW   Q +=       sz  *   cos(2.0f*Psi)*cc  *  length(B[oind])  ... OR
+   //  NEW   Q +=  p0 * sz  *   cos(2.0f*Psi)*cc  ;
+   //
+   //  OLD   Q +=       sz  *   sin(2.0f*Psi)*cc  *  length(B[oind])
+   //  NEW   Q +=       sz  *   sin(2.0f*Psi)*cc  *  length(B[oind])  ...  OR
+   //  NEW   Q +=  p0 * sz  *   sin(2.0f*Psi)*cc  ;
+
+   // polarisation reduction factor
+   // DT: removing the constant polarisation
+   float p = p00 ;  // constant p0 or encoded in the length of the B vector
+
+//   dtheta = THETA[1] - THETA[0] ;
+   while (ind>=0) {
+      oind    = OFF[level]+ind ;    // original cell, before step out of it
+      olevel  = level ;
+      sx      = GetStep(&POS, &TMP, &level, &ind, DENS, OFF, PAR) ; // step away from the observer
+      BN.x  =  Bx[oind] ;   BN.y = By[oind]+10.0f;//wn(cos((POS.z)/2),2);
+      BN.z = Bz[oind];//+1.0f*pown(cos((POS.y)/15.0f),2) ;
+       DIR_B = normalize(BN) ;
+      mag_theta = acos(dot(DIR_B,DIR)) ;
+      // gamma between B and POS, zeta between B and LOS == B vs DIR
+      BN    =  normalize(BN) ;
+      // cos(gamma) = cos(90-zeta)  =  sin(zeta)
+      // cos^2(gamma) =  sin^2 zeta =  1 - cos^2 zeta = 1 - dot(B, DIR)^2
+      float cc   =  0.99999f - 0.99998f * dot(BN, DIR)*dot(BN, DIR) ; // cos(gamma)^2
+ //     itheta = floor((mag_theta)/dtheta) ;
+      //ind  =15  ;
+      //iopt maybe for a_ind here
+      a_ind = floor(sqrt(pown(R_ALGN[oind]-a_align[0],2))/d_align) ;
+      //DT: only for test cases with N_align =20. needs to be changed.
+      if(a_ind>19){
+         a_ind=19 ;
+      }
+   //   it = getIND(itheta,a_ind);
+# if (WITH_ABU>0)    
+      int iopt = 2*a_ind ;
+      float ABU =  OPT[2*oind] ;
+      C_x_ext1 = ABU*(C_extmean + (delta_C_ext[iopt])) ;
+      C_y_ext1 = ABU*(C_extmean + (delta_C_ext[iopt])*(1.0f-3.0f*(cc)))  ;
+      C_x_ext2 = (1.0f-ABU)*(C_extmean1 + (delta_C_ext[iopt+1])) ;
+      C_y_ext2 = (1.0f-ABU)*(C_extmean1 + (delta_C_ext[iopt+1])*(1.0f-3.0f*(cc)))  ;
+      //C_y_ext = C_extmean + (delta_C_ext[a_ind])*(1.0f-3.0f*pown(sin(mag_theta),2))  ;
+      C_x_abs1 = ABU*(C_absmean + (delta_C_abs[iopt])) ;
+      C_y_abs1 = ABU*(C_absmean + (delta_C_abs[iopt])*(1.0f-3.0f*(cc)))  ;
+      C_x_abs2 =(1.0f-ABU)*( C_absmean1 + (delta_C_abs[iopt+1])) ;
+      C_y_abs2 = (1.0f-ABU)*(C_absmean1 + (delta_C_abs[iopt+1])*(1.0f-3.0f*(cc)) );
+      C_abs1   = 0.5f*(C_x_abs1+C_y_abs1) ;
+      C_ext1   = 0.5f*(C_x_ext1+C_y_ext1) ;
+      C_sca1   = C_ext1 - C_abs1         ;
+      C_pol1   = 0.5f*(C_x_ext1-C_y_ext1) ;
+      C_cpol1  = 0.0f ; //DT: putting this to zero for the moment. Need not be calculated for this implementation
+      C_abs2   = 0.5f*(C_x_abs2+C_y_abs2) ;
+      C_ext2   = 0.5f*(C_x_ext2+C_y_ext2) ;
+      C_sca2   = C_ext2 - C_abs2        ;
+      C_pol2   = 0.5f*(C_x_ext2-C_y_ext2) ;
+      C_cpol2  = 0.0f ; //DT: putting this to zero for the moment. Need not be calculated for this implementation
+      C_abs    = C_abs1+C_abs2;
+      C_ext    = C_ext1+ C_ext2 ;
+      C_sca    = C_ext- C_abs ;
+      C_pol   = C_pol1+ C_pol2 ;
+//      printf("cpol %1.3ef", C_extmean);
+
+# else
+      C_x_ext = C_extmean + (delta_C_ext[a_ind]) ;
+      C_y_ext = C_extmean + (delta_C_ext[a_ind])*(1.0f-3.0f*(cc))  ;
+      //C_y_ext = C_extmean + (delta_C_ext[a_ind])*(1.0f-3.0f*pown(sin(mag_theta),2))  ;
+      C_x_abs = C_absmean + (delta_C_abs[a_ind]) ;
+      C_y_abs = C_absmean + (delta_C_abs[a_ind])*(1.0f-3.0f*(cc))  ;
+      //C_y_abs = C_absmean + (delta_C_abs[a_ind])*(1.0f-3.0f*pown(sin(mag_theta),2))  ;
+      // varying abundance 
+      C_abs   = 0.5f*(C_x_abs+C_y_abs) ;
+      C_ext   = 0.5f*(C_x_ext+C_y_ext) ;
+      C_sca   = C_ext - C_abs         ;
+      C_pol   = 0.5f*(C_x_ext-C_y_ext) ;
+      C_cpol  = 0.0f ; //DT: putting this to zero for the moment. Need not be calculated for this implementation
+//      printf("cpol %1.3ef", C_extmean);
+# endif
+      dx = sx/nx ;
+      ix =  0 ;
+      while(ix<=sx){
+             ix += dx ;
+# if (WITH_ABU>0)
+             DTAU    = dx*DENS[oind]*(GOPT(2*oind)+GOPT(2*oind+1)) ;
+# else
+             DTAU    = dx*DENS[oind]*(C_scamean+C_absmean) ;  // sx in global units
+# endif
+             tauA          = dx*DENS[oind]*C_abs   ;   // optical depth for absorption            
+             //DT: add the other optical depths @@
+             tauE          = dx*DENS[oind]*(C_ext) ;   // DT: optical depth for extinction
+             // tau(cpol)  
+             tauCPOL       = dx*DENS[oind]*(C_cpol) ;  // optical depth for circular polarization            
+             // tau(pol)
+             tauPOL        = dx*DENS[oind]*(C_pol) ;   // optical depth for linear polarization
+
+             // the angles
+             // for LOS along x,  Psi = atan2(By, Bz), gamma  = atan2(Bx, sqrt(By*By+Bz*Bz)) ;
+             //    Psi    = angle east of north, in the plane of the sky --- full 2*pi !!!
+             //    Psi is in IAU convention   tan(2*Psi) = U/Q, Psi = 0.5*atan2(U,Q)
+             //    gamma  = angle away from the POS = 90 - angle wrt. DIR
+             //    cos(gamma) = sin(complement)
+             // BN.x  =  Bx[oind] ;   BN.y = By[oind] ;   BN.z = Bz[oind] ;
+# if (POLRED>0)   // using polarisation reduction encoded in B vector length
+              p     =  length(BN) ;
+# endif
+              BN    =  normalize(BN) ;
+              // Psi angle from North to East -- assumes that RA points to left
+# if 1
+              // this gives correct result... but why 0.5*pi ?
+              //    tested using make_pol_test_cloud.py, tst.py, and tst_polmap.py vs. tst_check_raw.py
+              //    and results of tst_check_raw.py  vs. Paolo's plots
+              //      polmap soc.Bx  soc.By  soc.Bz   where x, y, z correspond to RAMSES naming
+              float Psi  =  0.5f*PI + atan2(dot(BN, -RA), dot(BN, DE)) ;
+# else
+              // ... --- Psi is the angle for projected B, just used to calculate Q and U
+              // Psi = angle of projected B direction  ---  tan(Psi) =  (B*RA) / (B*DE)
+              //                                            Q   ~ cos(2*Psi),  U ~ sin(2*Psi)
+              // Chi = polarisation angle              ---  Chi = 0.5*arctan2(U, Q)
+              // *** this is not correct ***
+              float Psi  =         atan2(dot(BN, RA), dot(BN, DE)) ;
+              // *** this is not correct ***
+# endif
+              // gamma between B and POS, zeta between B and LOS == B vs DIR
+              // cos(gamma) = cos(90-zeta)  =  sin(zeta)
+              // cos^2(gamma) =  sin^2 zeta =  1 - cos^2 zeta = 1 - dot(B, DIR)^2
+              float cc   =  0.99999f - 0.99998f * dot(BN, DIR)*dot(BN, DIR) ; // cos(gamma)^2
+
+# if (POL_RHO_WEIGHT==1)  // polarisation maps with density, not emission weighted
+              sz =  1.0f;//dx * DENS[oind] ;
+# else
+              //add Cpol her as well.
+              //float EE = (2.79639459e-20f*FACTOR) * ABS[it] * (freq*freq/(exp(4.7995074e-11f*freq/TNEW[oind])-1.0f)) / LENGTH ; 
+              //float E_0 = 1.0f;//PLANCK*freq;
+              //float factor_1 = 1.0f;//0e3f/(4.0f*PI);//1.0e20f*4.0f*PI/(PLANCK*freq*) ;
+# if (WITH_ABU>0)             
+              //float EE1 = 2.0f*4.0f*PI*PLANCK*0.1f*1.0e-10f*ABU*C_extmean*(freq*freq*freq/(exp(4.7995074e-11f*freq/TNEW[oind])-1.0f));
+              //float EE2 = 2.0f*4.0f*PI*PLANCK*0.1f*1.0e-10f*(1-ABU)*C_extmean1*(freq*freq*freq/(exp(4.7995074e-11f*freq/TNEW1[oind])-1.0f));
+              float EE1 = 2.0f*ABU*C_extmean*(freq*freq*freq/(exp(4.7995074e-11f*freq/TNEW[oind])-1.0f));
+              float EE2 = 2.0f*(1-ABU)*C_extmean1*(freq*freq*freq/(exp(4.7995074e-11f*freq/TNEW1[oind])-1.0f));
+#else
+              //float EE = 2.0f*4.0f*PI*PLANCK*0.1f*1.0e-10f*C_extmean*(freq*freq*freq/(exp(4.7995074e-11f*freq/TNEW[oind])-1.0f));
+              float EE =2.0f*C_extmean*(freq*freq*freq/(exp(4.7995074e-11f*freq/TNEW[oind])-1.0f));
+#endif
+              //float EE = 2.0f*H_CC*(freq*freq*freq/(exp(4.7995074e-11f*freq/TNEW[oind])-1.0f));
+              if (DTAU<1.0e-3f) {
+                 sz = 1.0f;//exp(-TAU) *  (1.0f-0.5f*DTAU)        ;//* dx * EE*DENS[oind] ;
+              } else {
+                 sz =1.0f;// exp(-TAU) * ((1.0f-exp(-DTAU))/DTAU) ;//* dx * EE*DENS[oind] ;
+
+              }
+# endif
+             //DT: new polarisation calculation 
+# if(WITH_ABU>0)                      
+              float p1 = 3.0f*delta_C_abs[iopt]/(2.0f*C_absmean) ;
+              float p2 =3.0f*delta_C_abs[iopt+1]/(2.0f*C_absmean1) ;
+# else
+              float p = 3.0f*delta_C_abs[a_ind]/(2.0f*C_absmean) ;
+# endif
+              //add Cpol her as well.
+                                                                                                                                                                                                                                                                                                                                                                                                                                    
+# if (LEVEL_THRESHOLD>0) // ---------------------------------------------------------------------------------
+      // if (id==9999) printf("level %2d\n", olevel) ;
+              if (olevel>=LEVEL_THRESHOLD) {
+                 PHOTONS.x += sz*( factor_1*(C_ext*PHOTONS_OLD.x + C_pol*PHOTONS_OLD.y)*dx*-DENS[oind])  ;//+ EE*(1.0f-p*(cc-0.6666667f))*DENS[oind]*dx);
+                 PHOTONS.y += sz*( factor_1*(C_pol*PHOTONS_OLD.x + C_ext*PHOTONS_OLD.y)*dx*-DENS[oind])  ;//+ p*cos(2.0f*Psi)*EE*cc*DENS[oind]*dx) ;
+                 PHOTONS.z += sz*((factor_1*C_ext*PHOTONS_OLD.z + C_cpol*PHOTONS_OLD.w)*dx*-DENS[oind])  ;//+ p*sin(2.0f*Psi)*EE*cc*DENS[oind]*dx);
+                 PHOTONS.w += sz*(factor_1*(C_cpol*PHOTONS_OLD.z - C_pol*PHOTONS_OLD.w)*dx*-DENS[oind]) ;//+EE* (C_x_abs+C_x_abs)*DENS[oind]*dx;
+           }  else {
+                    ;  // if (id==9999) printf("SKIP\n") ;
+                 }
+# else // no threshold  --------------------------------------------------------------------------------------
+# if (WITH_ABU>0)
+              olevel = olevel ;
+              PHOTONS.x += (d_factor*-(C_ext*PHOTONS_OLD.x + C_pol*PHOTONS_OLD.y)*DENS[oind]*dx+sz*((EE2*(1.0f-p2*(cc-0.6666667f)))+(EE1*(1.0f-p1*(cc-0.6666667f))))*DENS[oind]*dx);
+              PHOTONS.y += (d_factor*-(C_pol*PHOTONS_OLD.x + C_ext*PHOTONS_OLD.y)*DENS[oind]*dx+ sz*cc*cos(2.0f*Psi)*(EE1*p1+EE2*p2)*DENS[oind]*dx) ;
+              PHOTONS.z += (d_factor*-(C_ext*PHOTONS_OLD.z + C_cpol*PHOTONS_OLD.w)*DENS[oind]*dx+ sz*cc*sin(2.0f*Psi)*(EE1*p1+p2*EE2)*DENS[oind]*dx);
+              PHOTONS.w += d_factor*(-(C_cpol*PHOTONS_OLD.z - C_pol*PHOTONS_OLD.w)*DENS[oind]*dx);//;//+EE* (C_x_abs-C_y_abs)*DENS[oind]*dx);
+
+              PHOTONS_OLD = PHOTONS;
+# else
+
+              olevel = olevel ;
+              PHOTONS.x += d_factor*(-(C_ext*PHOTONS_OLD.x + C_pol*PHOTONS_OLD.y)*DENS[oind]*dx+sz*((EE*(1.0f-p*(cc-0.6666667f))))*DENS[oind]*dx);
+              PHOTONS.y += d_factor*(-(C_pol*PHOTONS_OLD.x + C_ext*PHOTONS_OLD.y)*DENS[oind]*dx+ sz*cc*cos(2.0f*Psi)*(EE*p)*DENS[oind]*dx) ;
+              PHOTONS.z += d_factor*(-(C_ext*PHOTONS_OLD.z + C_cpol*PHOTONS_OLD.w)*DENS[oind]*dx+ sz*cc*sin(2.0f*Psi)*(EE*p)*DENS[oind]*dx);
+              PHOTONS.w += d_factor*(-(C_cpol*PHOTONS_OLD.z - C_pol*PHOTONS_OLD.w)*DENS[oind]*dx);//;//+EE* (C_x_abs-C_y_abs)*DENS[oind]*dx);
+
+              PHOTONS_OLD = PHOTONS;
+# endif
+# endif // LEVEL_THRESHOLD------------------------------------------------------------------------------------
+
+              // write out the 3d spatial map (LOS variation)
+              // MAP_3DLOS[0*NPIX.x*NPIX.y*NPIX.z+id] = PHOTONS.x
+              // MAP_3DLOS[1*NPIX.x*NPIX.y*NPIX.z+id] = PHOTONS.y
+              // MAP_3DLOS[2*NPIX.x*NPIX.y*NPIX.z+id] = PHOTONS.z
+              //MAP_em[0*NPIX.x*NPIX.y*NPIX.z+id] = PHOTONS.x
+              // MAP_em[1*NPIX.x*NPIX.y*NPIX.z+id] = PHOTONS.y
+              // MAP_em[2*NPIX.x*NPIX.y*NPIX.z+id] = PHOTONS.z
+
+              TAU     += DTAU ;
+              colden  += dx*DENS[oind] ;
+     }
+      // ind  = IndexG(POS, &level, &ind, DENS, OFF) ; --- should not be necessary!
+   }
+   // i = longitude, j = latitude = runs faster
+   MAP[0*NPIX.x*NPIX.y+id] = PHOTONS.x;  // I
+   MAP[1*NPIX.x*NPIX.y+id] = PHOTONS.y;  // Q
+   MAP[2*NPIX.x*NPIX.y+id] = PHOTONS.z;  // U
+   MAP[3*NPIX.x*NPIX.y+id] = colden * LENGTH ; // LENGTH == GL [cm]
+   //MAP[0*NPIX.x*NPIX.y+id] = PHOTONS.x*1.0e12f/(4.0f*PI) ;  // I
+   //MAP[1*NPIX.x*NPIX.y+id] = PHOTONS.y*1.0e12f/(4.0f*PI) ;  // Q
+   //MAP[2*NPIX.x*NPIX.y+id] = PHOTONS.z*1.0e12f/(4.0f*PI) ;  // U
+   //MAP[3*NPIX.x*NPIX.y+id] = colden * LENGTH ; // LENGTH == GL [cm]
+   //return ;
+   //  Q = cos(2*Psi), U = sin(2*Psi)
+   //  tan(2*Chi) = U/Q
+   // what does this mean ?
+   //    "we rotated Psi by 0.5*pi to make this polarisation angle, not angle of B"
+   // ?
+
+   // printf("colden %10.3e --- %10.3e %10.3e %10.3e\n", colden, PHOTONS.x, PHOTONS.y, PHOTONS.z) ;
+}
+
+#endif  // POLSTAT == 5
+
+
+
+
+
+                                                                                                                                                                                                                    
 

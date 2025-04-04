@@ -336,16 +336,16 @@ else:
     
 NVIDIA =  ('3090' in devices[0][0].name) | ('4070' in devices[0][0].name) | ('NVIDIA' in devices[0][0].name)
 
-
-ARGS = "-D NX=%d -D NY=%d -D NZ=%d -D BINS=%d -D WITH_ALI=%d -D PS_METHOD=%d -D FACTOR=%.4ef \
+# 2025-02-10 - "%s" did not help with INSTALL_DIR containing spaces in the name...
+ARGS = '-D NX=%d -D NY=%d -D NZ=%d -D BINS=%d -D WITH_ALI=%d -D PS_METHOD=%d -D FACTOR=%.4ef \
 -D CELLS=%d -D AREA=%.0f -D NO_PS=%d -D WITH_ABU=%d -D ROI_MAP=%d -D MAX_SPLIT=%d -D SELEM=%d \
 -D ROI_STEP=%d -D ROI_NSIDE=%d -D WITH_ROI_LOAD=%d -D WITH_ROI_SAVE=%d \
--D AXY=%.5ff -D AXZ=%.5ff -D AYZ=%.5ff -D LEVELS=%d -D LENGTH=%.5ef -I %s -D DO_SPLIT=%d \
+-D AXY=%.5ff -D AXZ=%.5ff -D AYZ=%.5ff -D LEVELS=%d -D LENGTH=%.5ef -I "%s" -D DO_SPLIT=%d \
 -D POLSTAT=%d -D SW_A=%.3ef -D SW_B=%.3ef -D STEP_WEIGHT=%d -D DIR_WEIGHT=%d -D DW_A=%.3ef \
 -D LEVEL_THRESHOLD=%d -D POLRED=%d -D p00=%.4ff -D MINLOS=%.3ef -D MAXLOS=%.3ef \
 -D FFS=%d -D NODIR=%d -D USE_EMWEIGHT=%d -D SAVE_INTENSITY=%d -D NOABSORBED=%d -D INTERPOLATE=%d \
 -D ADHOC=%.5ef %s -D HPBG_WEIGHTED=%d -D WITH_MSF=%d -D NDUST=%d -D OPT_IS_HALF=%d -D POL_RHO_WEIGHT=%d \
--D MAP_INTERPOLATION=%d -D MIRROR=%d -D CR_HEATING=%d -D CR_HEATING_RATE=%.3ef -D NVIDIA=%d" % \
+-D MAP_INTERPOLATION=%d -D MIRROR=%d -D CR_HEATING=%d -D CR_HEATING_RATE=%.3ef -D NVIDIA=%d' % \
 (  NX, NY, NZ, USER.DSC_BINS, USER.WITH_ALI, USER.PS_METHOD, FACTOR,
    CELLS, int(USER.AREA), max([1,int(USER.NO_PS)]), WITH_ABU, USER.ROI_MAP, MAX_SPLIT, SELEM,
    USER.ROI_STEP, USER.ROI_NSIDE, USER.WITH_ROI_LOAD, USER.WITH_ROI_SAVE,
@@ -2015,6 +2015,7 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                     OFF_buf[0], LCELLS_buf[0], TTT_buf, DENS_buf[0], EMIT_buf[0], TABS_buf[0])
                     commands[0].finish()
                 cl.enqueue_copy(commands[0], TNEW, TABS_buf[0])
+                if (CELLS<1e6): print("TNEW  ", percentile(TNEW, (0,25,50,75, 100)))
                 
             elif (not('MPT' in USER.KEYS)):
                 for level in range(LEVELS):
@@ -2176,6 +2177,7 @@ if (not('SUBITERATIONS' in USER.KEYS)):
             elif ('MPE' in USER.KEYS):         # emission multithreaded on host
                 # Note: this is slower than the single-thread Python version below....
                 # print("MPE - multithreaded emission calculation in Python")
+                print("EMITTED calculated with multiprocessing...")
                 def MP_emit(ifreq, ithread, ncpu, TNEW, MPA):
                     ii   =  int(REMIT_I1 + ifreq + ithread)  # index of the frequency
                     if (ii>REMIT_I2):  # no such channel
@@ -2199,11 +2201,17 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                         if ((ifreq+i)<=REMIT_I2):
                             EMITTED[:,ifreq+i] = MPA[i][:]
             else:                                  # emission with single host thread
-                for ifreq in range(REMIT_I1, REMIT_I2+1):
+                print("EMITTED calculated in Python...")
+                for ifreq in range(REMIT_I1, REMIT_I2+1):                    
+                    # freq              =   double(FFREQ[ifreq])
                     freq              =   FFREQ[ifreq]
+                    tave = mean(TNEW)
                     EMITTED[:, ifreq] =   \
-                    ((FACTOR*4.0*np.pi/(PLANCK*FFREQ[ifreq])) *  AFABS[0][ifreq] * PlanckTest(freq, TNEW[:])) \
-                    / (USER.GL*PARSEC)
+                        ((FACTOR*4.0*np.pi/(PLANCK*FFREQ[ifreq])) *  AFABS[0][ifreq] * PlanckTest(freq, TNEW[:])) / (USER.GL*PARSEC)
+                    print("--------------- Planck(%.3e, %.3e) = %.3e" % (freq, tave, PlanckTest(freq, tave)))
+                    # assert(abs(H_K-4.799243348e-11)<1e-17)
+                    # assert(abs(H_CC-7.372496678475674e-48)<1e-50)
+                    # print("ifreq %3d  %.3e %.3e EMITTED %.3e  %.3e" % (ifreq, freq, AFABS[0][ifreq], mean(EMITTED[:,ifreq]), PlanckTest(freq, mean(TNEW[:]))))
             del FTMP            
             Tsolve = time.time()-t0
             if (VERBOSE):

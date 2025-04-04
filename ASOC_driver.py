@@ -208,6 +208,7 @@ for idust in range(NDUST):
         print('A2E_pre.py %s.dust freq.dat %s %d' % (dust, solver, nenumber)) # gs_aSilx.dust -> aSilx.solver
         print("================================================================================")
         t0 = time.time()
+        # os.system('A2E_pre.py %s.dust freq.dat %s %d' % (dust, solver, nenumber))
         os.system('A2E_pre.py %s.dust freq.dat %s %d' % (dust, solver, nenumber))
         # print('... A2E_pre.py %s.dust freq.dat %s ... %.2f seconds' % (dust, solver, time.time()-t0)) # gs_aSilx.dust -> aSilx.solver
 
@@ -295,6 +296,7 @@ if (len(nnsolve)>0):
     print('ASOC.py rt_simple_nn.ini')
     print("================================================================================")
     t0 = time.time()
+    # os.system('ASOC.py rt_simple_nn.ini')
     os.system('ASOC.py rt_simple_nn.ini')
     print('@@ ASOC.py rt_simple_nn.ini ... %.2f seconds' % (time.time()-t0))
     
@@ -310,6 +312,7 @@ else:
     print("================================================================================")
     if (1):
         t0 = time.time()
+        # os.system('ASOC.py rt_simple.ini')
         os.system('ASOC.py rt_simple.ini')
         print('@@ ASOC.py rt_simple.ini ... %.2f seconds' % (time.time()-t0))
     else:
@@ -343,7 +346,7 @@ fpo.close()
 
 
 # if one is making a NN mapping (nnmake) and ini contained keyword nnthin, 
-# feed A2E_MABU.py only absorbed[0::nnthin, :], data for every nnthin:th cell
+# feed A2E_MABU.py only absorbed[0::nnthin, :] ==  data for every nnthin:th cell
 # emitted.data contains all frequencies and maps can be written.... unless nnthin>1 !
 # ... so also for nnthin>1 we use the normal name of the emitted file
 if ((len(nnmake)>0)&(nnthin>1)):
@@ -371,6 +374,7 @@ if ((len(nnmake)>0)&(nnthin>1)):
     print('A2E_MABU.py %s %s %s %s' % (INI, fabs, femit, args))
     print("================================================================================")
     os.system('cp %s a2e_mabu_backup.ini' % INI)
+    # os.system('A2E_MABU.py %s %s %s %s' % (INI, fabs, femit, args))
     os.system('A2E_MABU.py %s %s %s %s' % (INI, fabs, femit, args))
 else:
     t0 = time.time()
@@ -378,15 +382,15 @@ else:
     print('A2E_MABU.py %s %s %s %s' % (INI, fabs, femit, args))
     print("================================================================================")
     os.system('cp %s a2e_mabu_backup.ini' % INI)
+    # os.system('A2E_MABU.py %s %s %s %s' % (INI, fabs, femit, args))
     os.system('A2E_MABU.py %s %s %s %s' % (INI, fabs, femit, args))
 
 
 # Second SOC run -- compute maps 
 # remove the "nomap" option and replace stochastic dusts with corresponding simple dusts
 
-if ((len(nnmake)>0)&((absthin>1)|(nnthin>1))):
-    print("nnmake + [nnthin>1 | absthin>1]=> current emitted.data does not contain data for all cells")
-    print(" => map making is skipped")
+if (len(nnmake)>0):
+    print(" nnmake run  =>  map making is skipped")
     sys.exit()
     
     
@@ -406,7 +410,8 @@ if (len(nnsolve)>0):
             if (is_gs_dust(dust)): 
                 # once again, use dust names without "gs_" in all SOC and A2E calculations !!
                 # ... and ASOC will use only simple dust files
-                ndust = '%s_simple.dust' % (dust.replace('gs_','').split('.')[0])
+                # ndust = '%s_simple.dust' % (dust.replace('gs_','').split('.')[0])
+                ndust = '%s_simple.dust' % (dust.replace('gs_','').replace('.dust',''))
             ###
             # further modification for nnemit frequencies            
             nndust = write_nndust(ndust, nnemit, 'nnemit')  # only nnemit wavelengths
@@ -440,7 +445,8 @@ else:
             if (is_gs_dust(dust)): 
                 # once again, use dust names without "gs_" in all SOC and A2E calculations !!
                 # ... and ASOC will use only simple dust files
-                line = line.replace(dust, '%s_simple.dust' % (dust.replace('gs_','').split('.')[0]))
+                # line = line.replace(dust, '%s_simple.dust' % (dust.replace('gs_','').split('.')[0]))
+                line = line.replace(dust, '%s_simple.dust' % (dust.replace('gs_','').replace('.dust', '')))
         fp3.write(line)
         # ok, if INI contained libmaps line, the maps will be written for those frequencies only
     fp3.write('iterations 0\n')    
@@ -451,5 +457,6 @@ print("=========================================================================
 print("ASOC.py maps.ini")
 print("================================================================================")
 t0 = time.time()
+# os.system('ASOC.py maps.ini')
 os.system('ASOC.py maps.ini')
 # print("... ASOC.py maps.ini... %.2f seconds" % (time.time()-t0))

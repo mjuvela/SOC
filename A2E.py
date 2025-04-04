@@ -199,8 +199,8 @@ if (AALG!=None): # compute separate array for polarised intensity
 
 def PlanckSafe(f, T):  # Planck function
     # Add clip to get rid of warnings
-    H_CC    =  7.372496678e-48    #   PLANCK/C_LIGHT^2
-    return 2.0*H_CC*f*f*f / (np.exp(np.clip(H_K*f/T,-100,+100))-1.0)
+    H_CC20    =  7.372496678e-28    #   PLANCK/C_LIGHT^2
+    return 2.0e-20*((H_CC20*f)*f)*f / (np.exp(np.clip(H_K*f/T,-100,+100))-1.0)
 
 
 t0 = time.time()

@@ -12,7 +12,7 @@ else:
 
 def PlanckSafe(f, T):  # Planck function
     # Add clip to get rid of warnings
-    return 2.0*H_CC*f*f*f / (np.exp(np.clip(H_K*f/T,-100,+100))-1.0)
+    return 2.0e-20*((H_CC20*f)*f)*f / (np.exp(np.clip(H_K*f/T,-100,+100))-1.0)
 
 
 

@@ -7,7 +7,7 @@
 #define PIHALF    1.5707963268f
 #define TWOTHIRD  0.6666666667f
 #define PI        3.1415926535897f
-//  #define ADHOC   (1.0e-10f)
+// #define ADHOC   (1.0e-10f)
 
 #if (OPT_IS_HALF>0)
 # define GOPT(i) (vload_half(i,OPT))
@@ -20,6 +20,7 @@
 
 #define F2I(x)    (*(__global int*)&x)   //  __global BUFFER -> OTI
 #define I2F(x)    (*(float *)&x)         //           OTI    -> __global BUFFER
+
 
 #if 1 // ------------------------------------------------------------
 # if (LEVELS<3)  // low hierarchy, float works better
@@ -36,7 +37,6 @@
 #endif // ------------------------------------------------------------
 
 
-
 #if (NX>DIMLIM)  // from Index()
 # define ZERO 0.0
 # define HALF 0.5
@@ -49,6 +49,8 @@
 # define TWO  2.0f
 #endif
 
+// @DT@ Jan2025
+#define getIND(i,j) (i+j*20)
 
 #if (NVIDIA>0)
 
@@ -787,6 +789,57 @@ __kernel void Emission(const float     FREQ,
       // 1e20 * 4 *pi / (h*f) = 1.8965044e+47
       EMIT[i] = (2.79639459e-20f*FACTOR) * FABS * (FREQ*FREQ/(exp(4.7995074e-11f*FREQ/T[i])-1.0f)) / LENGTH ;
    }
+}
+
+
+
+
+// @DT@ Jan2025
+__kernel void EqTemperaturePol(const int       level,
+                            const float     adhoc,
+                            __global float     *kE,
+                            __global float     *Emin,
+                            __global float     *oplgkE,
+                            const int       NE,              // TTT[NE]
+                            __global int   *OFF,
+                            __global int   *LCELLS,
+                            __global float *TTT,
+                            __global float *DENS,
+                            __global float *EMIT,
+                            __global float *TNEW) {
+   int  id = get_global_id(0) ;
+   int  gs = get_global_size(0) ;
+   if (id>=CELLS) return ;
+   float scale   = (6.62607e-27f*FACTOR)/LENGTH ;
+   //float oplgkE ;//1.0f/log10(kE) ;
+   float wi, beta=1.0f, Ein ;
+   int   iE,it,aind ;
+   int   ind ;    // int32  +2,147,483,647   uint32 4,294,967,295
+   // for(int level=0; level<LEVELS; level++) {
+   for(int i=id; i<LCELLS[level]; i+=gs) {   // loop over cells on a given level
+      ind       =  OFF[level] + i ;
+      aind = 15;
+      // = aind*ind;
+    //  oplgkE  = 1.0f/log10(kE[aind]) ;
+      Ein       =  (scale/adhoc) * EMIT[ind] * pown(8.0f, level) / DENS[ind] ; // 1e10 == ADHOC on host !!!!
+      iE        =  clamp((int)floor(oplgkE[aind] * log10((Ein/beta)/Emin[aind])), 0, NE-2) ;
+      wi        =  (Emin[aind]*pown(kE[aind],iE+1)-(Ein/beta)) / (Emin[aind]*pown(kE[aind], iE)*(kE[aind]-1.0f)) ;
+      it =getIND(aind,iE) ;
+      //printf("wi %8.4f,%d\n", wi,iE) ;
+#if 0
+      if ((ind<0)||(ind>=CELLS)) printf("????\n") ;
+#endif
+      TNEW[ind] =  (DENS[ind]>1.0e-7f) ?  clamp(wi*TTT[it] + (1.0f-wi)*TTT[it], 3.0f, 1600.0f) : (10.0f) ;
+      if ((TNEW[ind]>1.0f)&&(TNEW[ind]<1000.0f)) {
+         ;
+      } else {
+#if 0
+         printf("???    Ein %12.4e  [%12.4e, %12.4e]         T = %.3e,  NE=%d, kE=%.6f\n",
+                Ein,   Emin, Emin*pown(kE, NE), TNEW[ind], NE,   kE) ;
+#endif
+      }
+   }
+   // }
 }
 
 

@@ -31,11 +31,12 @@ PLANCK  =  6.62606957e-27
 H_K     =  4.79924335e-11 
 D2R     =  0.0174532925       # degree to radian
 PARSEC  =  3.08567758e+18 
-H_CC    =  7.372496678e-48 
+# H_CC    =  7.372496678e-48
+H_CC20  =  7.372496678e-28 
 
 def PlanckSafe(f, T):  # Planck function
     # Add clip to get rid of warnings
-    return 2.0*H_CC*f*f*f / (np.exp(np.clip(H_K*f/T,-100,+100))-1.0)
+    return 2.0e-20*((H_CC20*f)*f)*f / (np.exp(np.clip(H_K*f/T,-100,+100))-1.0)
 
     
 def opencl_init(GPU, platforms, verbose=0):

@@ -4,12 +4,12 @@
 #define C_LIGHT   (2.99792e+10f)
 // #define SCALE     (1.0e20f)  --- replaced by FACTOR 
 
+// double does not seem necessary...
 #define REAL double
 // #define REAL float
 
 
 #if 1
-
 
 float Interpolate(const int n, const __global float *x, const __global float *y, const float x0) {
    // Return linear-interpolated value based on (x,y) vectors.
@@ -29,6 +29,8 @@ float Interpolate(const int n, const __global float *x, const __global float *y,
 }
 
 #else
+
+// 2025-04-04  => loglog interpolation... no difference in the temperature distributions => keep linear
 
 float Interpolate(const int n, const __global float *x, const __global float *y, const float x0) {
    // Return value interpolated on log-log scale
@@ -102,7 +104,17 @@ __kernel void PrepareTdown(const    int     NFREQ,       // number of frequencie
          x    =  Interpolate(NFREQ, FREQ, SKABS, ee1/PLANCK) ; // SKabs_Int(size, ee1/Planck)
          yy1  =  ee1*ee1*ee1 * x / (exp(ee1/(BOLTZMANN*Tu))-1.0) ;
          // now integrate  [ee0, ee1]  with values  [yy0, yy1]
+#if 1
+         // integration with linear scale = normal trapezium
          I   +=  0.5*(ee1-ee0)*(yy1+yy0) ;                     // trapezoid integration of the substep
+#else
+         // integration with loglog scale  =  interpolate as linear on loglog scale
+         // 2025-04-04 possible small improvement in predicted intensity from integration assuming functio is linear on loglog scale
+         // but the temperature distributions are clearly worse => keep integration on linear scale
+         // no !... temperatures were ~ok,  but there was no significant difference compared to the above integration on linear scale
+         beta =  log(yy1/yy0) ;
+         I   +=  yy0 * exp(-ee0*beta/(ee1-ee0)) * ((ee1-ee0)/beta) * (exp(beta*ee1/(ee1-ee0)) - exp(beta*ee0/(ee1-ee0))) ;
+#endif
          ee0  =  ee1 ;   // move to next start position
          yy0  =  yy1 ;
       }
@@ -111,13 +123,19 @@ __kernel void PrepareTdown(const    int     NFREQ,       // number of frequencie
    }
    // Now integration completed up to Ef[i],   ee0 == EF[i], integrate final step [Ef[i], Eu]
    // if (Eu<Ef[NFREQ-1]) {                    // last partial step [Ef[i], Eu]
-   if (i<(NFREQ-1)) {                    // last partial step [Ef[i], Eu]
-      for (int j=0; j<SS; j++) {            // substepping over 
+   if (i<(NFREQ-1)) {                          // last partial step [Ef[i], Eu]
+      for (int j=0; j<SS; j++) {               // substepping over 
          ee1  =  Ef[i] + (j+1)*(Eu-Ef[i])/SS  ;
          // yy1  =  ee1*ee1*ee1*SKABS(size,ee1/PLANCK)/(exp(ee1/(BOLZMANN*Tu))-1.0) ;
          x    =  Interpolate(NFREQ, FREQ, SKABS, ee1/PLANCK) ;  // SKabs_Int(size, ee1/PLANCK) => Cabs(ee1)
          yy1  =  ee1*ee1*ee1 * x / (exp(ee1/(BOLTZMANN*Tu))-1.0) ;
+#if 1
          I   +=  0.5*(ee1-ee0)*(yy1+yy0) ;
+#else
+         
+         beta =  log(yy1/yy0) ;
+         I   +=  yy0 * exp(-ee0*beta/(ee1-ee0)) * ((ee1-ee0)/beta) * (exp(beta*ee1/(ee1-ee0)) - exp(beta*ee0/(ee1-ee0))) ;
+#endif
          ee0  =  ee1 ;
          yy0  =  yy1 ;         
       }
@@ -510,7 +528,14 @@ __kernel void PrepareIntegrationWeightsTrapezoid(const int NFREQ,
                                                  __global int   *noIw        // noIw for each l = lower bin
                                             ) 
 {
-   // Integration weights using the Guhathagurta & Draine formulas
+   // Trapezoid integration is now the default (Dec 2024)
+   //   - we have moved to interpolation on loglog scale,
+   //     also integrating in PrepareTdown assuming that function would be linear on loglog scale
+   //     This seemed to improve the precision, less error when NFREQ is increased (marginal).
+   //   - However, we integrate absorptions still assuming function would be linear on linear scale,
+   //     because integration "linear on log-log scale" cannot be expressed as direct sum of W*y
+   //     (nonlinear combinations of a, b, ya, and yb in the case of a step [a,b])
+
    const int l = get_global_id(0) ; // Each work item works on different "l", initial enthalpy bin.
    if (l>=(NE-1)) return ;
    int index = 0 ;  

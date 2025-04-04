@@ -95,9 +95,9 @@ except:
     sdevice = ''
     
 for iplatform in range(5):
-    try:
+    try:  # get a GPU device
         platform  = cl.get_platforms()[iplatform]
-        device    = platform.get_devices(cl.device_type.CPU)
+        device    = platform.get_devices(cl.device_type.GPU)
         # print(' ...', device[0].name)
         if ('Oclgrind' in device[0].name): continue
         if (sdevice!=''):
@@ -110,12 +110,12 @@ for iplatform in range(5):
         break
     except:
         pass
-if (dev_found==False): # just as backup, pick a GPU device
-    # print("CPU not found, trying to find GPU...")
-    for iplatform in range(4):
+if (dev_found==False): # just as backup, pick a CPU device
+    print("GPU not found, trying to find CPU...")
+    for iplatform in range(5):
         try:
             platform  = cl.get_platforms()[iplatform]
-            device    = platform.get_devices(cl.device_type.GPU)
+            device    = platform.get_devices(cl.device_type.CPU)
             print(' ...', device[0].name)
             if ('Oclgrind' in device[0].name): continue
             if (sdevice!=''):
@@ -254,7 +254,7 @@ for isize in range(NSIZE):
     if (1):
         # PrepareTdown() kernel
         PrepareTdown(queue,  [GLOBAL,], [LOCAL,], NFREQ, FREQ_buf, Ef_buf, SKABS_buf, NE, E_buf, T_buf, Tdown_buf)
-    else:
+    else:  #  again confirmed 2025-04-04 -- PrepareTdown() and PrepareTdown2() give identical emission.
         # the same results ...
         PrepareTdown2(queue, [GLOBAL,], [LOCAL,], NFREQ, FREQ_buf,         SKABS_buf, NE, E_buf, T_buf, Tdown_buf)
 

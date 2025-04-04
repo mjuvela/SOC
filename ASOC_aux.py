@@ -36,7 +36,8 @@ PLANCK  =  6.62606957e-27
 H_K     =  4.79924335e-11 
 D2R     =  0.0174532925       # degree to radian
 PARSEC  =  3.08567758e+18 
-H_CC    =  7.372496678e-48 
+H_CC    =  7.372496678e-48    # this causes trouble in float32 calculations
+H_CC20  =  7.372496678e-28
 
 SEED0   =  0.8150982470475214
 SEED1   =  0.1393378751427912
@@ -54,14 +55,14 @@ MAX_SPLIT = 4300   # 2022-07-13  ... SN50_9_13_000800.soc some warnings with MAX
 
 
 def Planck(f, T):      # Planck function
-    return 2.0*H_CC*f*f*f / (exp(H_K*f/T)-1.0) 
+    return 2.0e-20*((H_CC20*f)*f)*f / (exp(H_K*f/T)-1.0) 
 
 def PlanckSafe(f, T):  # Planck function
     # Add clip to get rid of warnings
-    return 2.0*H_CC*f*f*f / (exp(clip(H_K*f/T,-100,+100))-1.0)
+    return 2.0e-20*((H_CC20*f)*f)*f / (exp(clip(H_K*f/T,-100,+100))-1.0)
 
 def PlanckTest(f, T):  # Planck function
-    return 2.0*H_CC*f * (f*f / (exp(clip(H_K*f/T,-80,+80))-1.0))
+    return 2.0e-20*((H_CC20*f)*f)*f / (exp(clip(H_K*f/T,-80,+80))-1.0)
 
 def um2f(um):  # convert wavelength [um] to frequency [Hz]
     return C_LIGHT/(1.0e-4*um)
@@ -113,6 +114,7 @@ class User:
         self.STEP_WEIGHT  = [-1,0,0] #  parameters of step-length weighting
         self.DIR_WEIGHT   = [-1,0,0] # parameters of direction weighting
         self.NPIX         = cl.cltypes.make_int2(10,10)  # number of map pixels
+        self.NPIX1        = cl.cltypes.make_int3(10,10,10)  # @DT@ number of map pixels
         self.FAST_MAP     = -1       # fast map calculation (>1 == several frequencies in parallel)
         self.REMIT_F      = [0.0, 1e30] # save emission and spectra only for this frequency range
         ## self.SIM_F        = [1.2e12, 3.3e15 ] # limit simulated frequencies
@@ -227,6 +229,11 @@ class User:
 
         self.ABSTHIN       = -1
         self.NNNLIMIT      = 0.0     # density threshold for NN training sample
+
+        # @DT@ Jan2025
+        self.POLSIM        = 0       # for full polarisation 
+        self.DUST_FILE = '' # optical cross section for polarisation        
+        self.ALIGN_DAT = '' # optical cross section for polarisation
         
         # read inifile
         for line in open(filename).readlines():    
@@ -324,7 +331,11 @@ class User:
             if (key.find('polstat')==0):     self.POLSTAT           = int(a)
             if (key.find('absthin')==0):     self.ABSTHIN           = int(a)
             if (key.find('nnnlimit')==0):    self.NNNLIMIT          = float(a)
-            
+
+            # @DT@ Jan2025
+            if (key.find('dustfile')==0):    self.DUST_FILE         = a
+            if (key.find('radiusalign')==0): self.ALIGN_DAT         = a 
+           
             if (key.find('platform')==0):  #  platform  #platform [ #device ]
                 self.PLATFORM   = int(a)
                 if (len(s)>2):
@@ -468,6 +479,11 @@ class User:
                 # stepweight=1      p = A*exp(-A*x)
                 # stepweight=2      p ~   exp(-B*x) + A*exp(-2*B*x)
                 self.STEP_WEIGHT = [ int(a), float(b), float(c) ]
+
+            if (key.find('3d_map')==0): # @DT@ Jan2025
+                # mapping:  nx, ny,  dx[grid units]
+                self.NPIX1   = cl.cltypes.make_int3(int(a), int(b),int(c))
+
             if (key.find('mapping')==0):
                 # mapping:  nx, ny,  dx[grid units]
                 self.NPIX   = cl.cltypes.make_int2(int(a), int(b))
@@ -1756,7 +1772,7 @@ def MakeFits(lon, lat, pix, m, n, freq=[], sys_req='fk5'):
 
 
 
-def read_polarisation_parameters(FREQ): # @@
+def read_polarisation_parameters(USER): # @DT@ Jan2025
     """
     Read dust parameters for full polarisation simulation.
     Input:
@@ -1772,25 +1788,29 @@ def read_polarisation_parameters(FREQ): # @@
     axis 0: aligned radius
     axis 1: wavelength
     """
-    folder   = os.path.dirname(os.path.realpath(__file__))+"/../rt_polarisation"    
+    #folder   = os.path.dirname(os.path.realpath(__file__))+"/../rt_polarisation"    
     # 104 frequencies
-    wl       = np.load(folder+'/graphite_oblate_data/wl.npy') #cm   wavelengths
-    wl      *= 1.0e6       # inputs [m]
+    wl       = np.load('/scratch/project_2008682/POL_DT/silicate_oblate_data/silicate_oblate_data/wl.npy') #cm   wavelengths
+    wl      *= 1e6       # inputs [m]
+    folder = USER.DUST_FILE
+    FREQ = USER.FFREQ
+
     # print("wl", min(wl), max(wl))
     # (Cpar + Cperp)/2 integrated over radii
     #    [20,104]  =  20 radius values,  104 wavelengths
-    fCabs    =  np.load(folder+'/silicate_oblate_data/C_abs_mean.npy')   # [na, num] -> [num]
-    fdCabs   =  np.load(folder+'/silicate_oblate_data/delta_C_abs.npy')  # [na, num]      
-    fCsca    =  np.load(folder+'/silicate_oblate_data/C_sca_mean.npy')   # [na, num] -> [num]
-    fdCsca   =  np.load(folder+'/silicate_oblate_data/delta_C_sca.npy')  # [na, num]      
-    fCext    =  np.load(folder+'/silicate_oblate_data/C_ext_mean.npy')   # [na, num] -> [num]     
-    fdCext   =  np.load(folder+'/silicate_oblate_data/delta_C_ext.npy')  # [na, num]      
-    fa_algn  =  np.load(folder+'/silicate_oblate_data/a_align.npy')      # [na]
+    fCabs    =  np.load(folder+'C_abs_mean.npy')   # [na, num] -> [num]
+    fdCabs   =  np.load(folder+'delta_C_abs.npy')  # [na, num]      
+    fCsca    =  np.load(folder+'C_sca_mean.npy')   # [na, num] -> [num]
+    fdCsca   =  np.load(folder+'delta_C_sca.npy')  # [na, num]      
+    fCext    =  np.load(folder+'C_ext_mean.npy')   # [na, num] -> [num]     
+    fdCext   =  np.load(folder+'delta_C_ext.npy')  # [na, num]      
+    fa_algn  =  np.load(folder+'a_align.npy')      # [na]
+    ndim = fCabs.ndim
 
-    if (len(fCabs)>1): # these should be just one vector = mean values
-        fCabs = fCabs[0,:]  # fCabs[nfreq]
-        fCsca = fCsca[0,:]
-        fCext = fCext[0,:]
+    #if (len(fCabs)>1): # these should be just one vector = mean values
+    fCabs = fCabs[0,:]  # fCabs[nfreq]
+    fCsca = fCsca[0,:]
+    fCext = fCext[0,:]
     
     if (0):
         X = [ fCabs, fdCabs, fCsca, fdCsca, fCext, fdCext, fa_algn]
@@ -1808,24 +1828,71 @@ def read_polarisation_parameters(FREQ): # @@
         #sys.exit()
     # Interpolate data to the frequencies FREQ
     nfreq    =  len(FREQ)
-    Cabs     =  zeros(nfreq, float32)  # values interpolated to FREQ frequencies
-    Csca     =  zeros(nfreq, float32)     
-    Cext     =  zeros(nfreq, float32)     
-    dCabs    =  zeros((na, nfreq), float32)      
-    dCsca    =  zeros((na, nfreq), float32)      
-    dCext    =  zeros((na, nfreq), float32)
-    FROM     =  [ fCabs, fdCabs, fCsca, fdCsca, fCext, fdCext ]  # [na, num  ]  ~ wl [cm]
+    if(ndim>2):
+        nx = 2
+        Cabs     =  zeros((nfreq,nx), float32)  # values interpolated to FREQ frequencies
+        Csca     =  zeros((nfreq,nx), float32)
+        Cext     =  zeros((nfreq,nx), float32)
+        dCabs    =  zeros((na, nfreq,nx), float32)
+        dCsca    =  zeros((na, nfreq,nx), float32)
+        dCext    =  zeros((na, nfreq,nx), float32)
+        Ccirc    =  zeros((nfreq,nx), float32)
+    else:
+
+        Cabs     =  zeros((nfreq), float32)  # values interpolated to FREQ frequencies
+        Csca     =  zeros((nfreq), float32)
+        Cext     =  zeros((nfreq), float32)
+        dCabs    =  zeros((na, nfreq), float32)
+        dCsca    =  zeros((na, nfreq), float32)
+        dCext    =  zeros((na, nfreq), float32)
+        Ccirc    =  zeros((nfreq), float32)
+#    Cabs     =  zeros(nfreq, float32)  # values interpolated to FREQ frequencies
+#    Csca     =  zeros(nfreq, float32)     
+#    Cext     =  zeros(nfreq, float32)     
+#    dCabs    =  zeros((na, nfreq), float32)      
+#    dCsca    =  zeros((na, nfreq), float32)      
+#    dCext    =  zeros((na, nfreq), float32)
+    FROM     =  [ fCabs, fdCabs, fCsca, fdCsca, fCext, fdCext]  # [na, num  ]  ~ wl [cm]
     TO       =  [  Cabs,  dCabs,  Csca,  dCsca,  Cext,  dCext ]  # [na, nfreq]  ~ freq [Hz]
-    for i in range(len(FROM)):
-        A = FROM[i]
-        B = TO[i]
-        if (len(A.shape)==1):
-            ip   = interp1d(wl, A, bounds_error=False, fill_value=(A[0], A[-1]))
-            B[:] = ip(f2um(FREQ))         #  B[nfreq]        
-        else:
-            for ia in range(na):
-                ip      = interp1d(wl, A[ia,:], bounds_error=False, fill_value=(A[ia,0], A[ia,-1]))
-                B[ia,:] = ip(f2um(FREQ))  #  B[na, nfreq]        
+#    for i in range(len(FROM)):
+#        A = FROM[i]
+#        B = TO[i]
+#        if (len(A.shape)==1):
+#            ip   = interp1d(wl, A, bounds_error=False, fill_value=(A[0], A[-1]))
+#            B[:] = ip(f2um(FREQ))         #  B[nfreq]        
+#        else:
+#            for ia in range(na):
+#                ip      = interp1d(wl, A[ia,:], bounds_error=False, fill_value=(A[ia,0], A[ia,-1]))
+#                B[ia,:] = ip(f2um(FREQ))  #  B[na, nfreq]      
+    print(ndim)
+    if(ndim>2):
+        for i in range(len(FROM)):
+            A = FROM[i]
+            B = TO[i]
+            for it in range(2):
+                if (len(A.shape)==2):
+        #            print(A.shape,B.shape)
+                    ip   = interp1d(wl, A[:,it], bounds_error=False, fill_value=(A[0,it], A[-1,it]))
+                    B[:,it] = ip(f2um(FREQ))         #  B[nfreq]        
+                else:
+                    for ia in range(na):
+         #               print(A.shape,B.shape)
+                        ip      = interp1d(wl, A[ia,:,it], bounds_error=False, fill_value=(A[ia,0,it], A[ia,-1,it]))
+                        B[ia,:,it] = ip(f2um(FREQ))  #  B[na, nfreq] 
+    else:
+        for i in range(len(FROM)):
+            A = FROM[i]
+            B = TO[i]
+            if (len(A.shape)==1):
+        #            print(A.shape,B.shape)
+                ip   = interp1d(wl, A[:], bounds_error=False, fill_value=(A[0], A[-1]))
+                B[:] = ip(f2um(FREQ))         #  B[nfreq]        
+            else:
+                for ia in range(na):
+         #               print(A.shape,B.shape)
+                    ip      = interp1d(wl, A[ia,:], bounds_error=False, fill_value=(A[ia,0], A[ia,-1]))
+                    B[ia,:] = ip(f2um(FREQ))  #  B[na, nfreq] 
+
     if (0): # resampled absorption and scattering curves
         print("fCabs")
         print(fCabs)
@@ -1847,7 +1914,8 @@ def read_polarisation_parameters(FREQ): # @@
        'dCsca' :  asarray(dCsca, float32), 
        'Cext'  :  asarray(Cext, float32), 
        'dCext' :  asarray(dCext, float32), 
-       'a_algn':  asarray(a_algn, float32) 
+       'Ccirc' :  asarray(Ccirc, float32),
+       'a_algn':  asarray(fa_algn*100, float32) 
        }
     return PPAR
        
@@ -1866,3 +1934,79 @@ def get_floats(s):
             break
         
     return asarray(res, float32)
+
+
+# @DT@ Jan2025
+def read_dust_DT(USER):
+    """
+    Read optical data from the dust file(s).
+    Input:
+        USER    =  User object
+    Return:
+        FFREQ, FG, FABS, FSCA:
+            FFREQ  =  frequencies
+            AFG    =  values of asymmetry parameter (array of vectors)
+            AFABS  =  optical depth / n / GL  for absorption (array of vectors)
+            AFSCA  =  optical depth / n / GL  for scattering (array of vector)
+    Note:
+        USER should have the following parameters:
+            USER.file_optical  =  file with the dust parameters
+            USER.file_optical_align = file with dust coeffcients with respect to alignment parameters
+            USER.GL            =  grid length == GL == size of root grid cells [pc]
+        USER.NFREQ is updated to correspond to the number of frequencies
+    """
+    # 2018-12-08 --- FG, FABS, FSCA changed into arrays of vectors to allow multiple dust species
+    AFG, AFABS, AFSCA = [], [], []
+    USER.NFREQ = -1
+    if (USER.POLSIM>0):
+        for filename in USER.file_optical:
+            print("read_dust: %s" % filename)
+            tmp           = open(filename).readlines()
+            # GRAIN_DENSITY = float(tmp[1].split()[0])
+            # GRAIN_SIZE    = float(tmp[2].split()[0])
+            #mp = loadtxt(filename, comments='#',skiprows=1,max_rows=11)
+            THETA        = np.float32(tmp[4].split(','))#tmp[4]#float(tmp[2].split()[0])
+            FFREQ        = np.float32(tmp[6].split(','))
+            AALIGN       = np.float32(tmp[2].split(','))
+            #ALIGN        = tmp[3]#float(tmp[1].split()[0])
+            USER.NFREQ    = len(FFREQ)
+            USER.NTHETA   = len(THETA)
+            USER.NALIGN   = len(AALIGN)
+            d             = loadtxt(filename, skiprows=15)
+            #FFREQ         = asarray(d[:,0].copy(), float32)
+            FABS          = asarray(d[:,1]*USER.GL*PARSEC, float32).reshape(USER.NFREQ, USER.NTHETA,USER.NALIGN)
+            FSCA          = asarray(d[:,2]*USER.GL*PARSEC, float32).reshape(USER.NFREQ, USER.NTHETA,USER.NALIGN)
+            FG  = 0*FABS + 1
+            if ((USER.NFREQ>0)&(USER.NFREQ!=len(FFREQ))):
+                print("*** Error in optical parameters: dusts must have same frequency grid")
+                sys.exit()
+            USER.NFREQ    = len(FFREQ)
+            AFG.append(FG)
+            AFABS.append(FABS)
+            AFSCA.append(FSCA)
+            print('shape of AFABS',len(AFABS))
+        USER.FFREQ, USER.FABS, USER.FSCA = FFREQ, AFABS, AFSCA
+        return FFREQ, THETA,AALIGN, AFG, AFABS, AFSCA
+    else:
+    #if USER.POLSIM ==0:
+        for filename in USER.file_optical:
+            print("read_dust: %s" % filename)
+            tmp           = open(filename).readlines()
+            GRAIN_DENSITY = float(tmp[1].split()[0])
+            GRAIN_SIZE    = float(tmp[2].split()[0])
+            #coeff         = GRAIN_DENSITY*pi*GRAIN_SIZE**2.0 * USER.GL*PARSEC  # tau / n / pc
+            coeff = USER.GL*PARSEC
+            d             = loadtxt(filename, skiprows=4)
+            FFREQ         = asarray(d[:,0].copy(), float32)
+            FG            = asarray(d[:,1].copy(), float32)
+            FABS          = asarray(d[:,2]*coeff, float32)
+            FSCA          = asarray(d[:,3]*coeff, float32)
+            if ((USER.NFREQ>0)&(USER.NFREQ!=len(FFREQ))):
+                print("*** Error in optical parameters: dusts must have same frequency grid")
+                sys.exit()
+            USER.NFREQ    = len(FFREQ)
+            AFG.append(FG)
+            AFABS.append(FABS)
+            AFSCA.append(FSCA)
+        USER.FFREQ, USER.FABS, USER.FSCA = FFREQ, AFABS, AFSCA
+        return FFREQ, AFG, AFABS, AFSCA

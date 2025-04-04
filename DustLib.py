@@ -1329,9 +1329,21 @@ class DustemDustO(DustO):
             sys.exit()
         ##
         self.CT = 10.0**self.ClgT   # [K]
-        self.CC = 10.0**self.ClgC   # [erg/K/cm3]
+        if (0):
+            self.CC = 10.0**self.ClgC   # [erg/K/cm3]
+        else:
+            self.CC = 10.0**clip(self.ClgC, 0.0, 21.0)   # [erg/K/cm3]
         ## END OF __init__    
-
+        if (0):
+            print("self.CT")
+            print(self.CT)
+            print("self.CC")
+            print(self.CC)
+            for j in range(self.CC.shape[0]):
+                for i in range(self.CC.shape[1]):
+                    sys.stdout.write(' %10.3e' % self.CC[j,i])
+                sys.stdout.write('\n')
+        
 
         
         
@@ -1485,7 +1497,7 @@ def combined_scattering_function_simple(DUST, um, theta, SIN_WEIGHT, size_sub_bi
     W   = 0.0
     for i in range(n):
         w     =  DUST[i].Ksca(f)   # Ksca = weight factor  -- guaranteed to be >0
-        print("um = %7.3f     dust %d   w =  %.3e" % (um, i, w))
+        # print("um = %7.3f     dust %d   w =  %.3e" % (um, i, w))
         W    +=  w
         res  +=  w * DUST[i].DSF_simple(f, theta, SIN_WEIGHT)
     res /= W
@@ -1891,7 +1903,7 @@ def write_simple_dust_output_CRT(DUST, FREQ, BINS=2500, filename='tmp.dust', dsc
 
 
     
-def write_DUSTEM_files(dustem_file='', DIR=''):
+def write_DUSTEM_files(dustem_file='', DIR='', DUST=''):
     """
     Write dust files needed by the CRT + DustEM runs.
     If necessary, rename dusts so that each size distribution is associated to a 
@@ -1929,9 +1941,15 @@ def write_DUSTEM_files(dustem_file='', DIR=''):
             else:      dust = '%s_copy%d' % (orig, i)      # rename so that same name appears only once
             if (not(dust in ORINAME)): break    # ok, first line with this dust name
         ORINAME.append(orig)
-        NEWNAME.append(dust)
+        newname = dust
+        if (DUST!=''): newname = '%s_%s' % (DUST, dust)
+        NEWNAME.append(newname)
         # write out the CRT file for this dust component
-        fpc = open('dustem_%s.dust' % dust, 'w')
+        # NOTE !! dustem file still refer to e.g. size with original dust name,
+        #         one does not guard against someone editing DustEM file and recreating *size for
+        #         a different size distribution, overwriting previous file
+        #         This would mess up CRT runs, does not affect SOC runs. 
+        fpc = open('dustem_%s.dust' % newname, 'w' )# could be dustem_<dust model>_<this_component>.dust
         fpc.write('dustem\n')
         fpc.write('# dust from %s\n' % dustem_file)
         fpc.write('prefix          %s\n' % dust)   # dust name, possibly renamed
@@ -1941,7 +1959,7 @@ def write_DUSTEM_files(dustem_file='', DIR=''):
         fpc.write('lambda          %s/oprop/LAMBDA.DAT\n' % (DUSTEM_DIR))
         fpc.write('heat            %s/hcap/C_%s.DAT\n'  % (DUSTEM_DIR, dust))
         fpc.close()
-        fp.write('dust   dustem_%s.dust\n' % dust)     # these should be included in CRT ini
+        fp.write('dust   dustem_%s.dust\n' % newname)     # these should be included in CRT ini
         # copy the line to GRAIN.DAT
         fpD.write(line.replace(orig, dust))
         # make sure Q, G, and C files (symbolic links) exist for the renamed dusts
