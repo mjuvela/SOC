@@ -1138,17 +1138,23 @@ class DustemDustO(DustO):
                 #     {size [um]}
                 #     rho [g/cm3]  <--- iff this line exists before the "#### Qabs ####" line
                 iprho = None
+                # print("QFILENAME = ", DUSTEM_DIR+'/oprop/Q_%s.DAT' % self.DUSTNAME)
                 lines = open(DUSTEM_DIR+'/oprop/Q_%s.DAT' % self.DUSTNAME).readlines()
                 for iline in range(10): 
                     if (lines[iline][0:1]!='#'):
                         break
                 # iline+1 = sizes,  iline+2 *possibly* rho(a)
                 if (lines[iline+2][0:1]!='#'): # ok, rho values are given
+                    # lines =   a [um] and density [g/cm3],   self.SIZE_A  [cm] !!!!
                     d     = loadtxt(DUSTEM_DIR+'/oprop/Q_%s.DAT' % self.DUSTNAME, skiprows=iline+1, max_rows=2)
+                    # print("a   = ", d[0,:])
+                    # print("rho = ", d[1,:])
                     iprho = interp1d(d[0,:], d[1,:], bounds_error=False, fill_value=(d[1,0], d[1,-1]))
-                    rho   = iprho(self.SIZE_A)
+                    rho   = iprho(self.SIZE_A*1.0e4)
                     self.RHO = rho
-                
+                    # print("RHO VALUES GIVEN IN THE Q FILE !!!!!")
+                    # print(" ===> ", self.RHO)
+                    
                 # we need normalisation with respect to H
                 #   volume integral * rho  =  Hydrogen mass * rmass
                 # integal of mass_integrand over [amin, amax] == 1.00794*AMU*rmass

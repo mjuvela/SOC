@@ -203,6 +203,18 @@ for idust in range(NDUST):
     redo    =   True
     if (os.path.exists(solver)): # skip solver creation if that exists and is more recent than dust file
         if (os.stat(dust+'.dust').st_mtime<os.stat(solver).st_mtime): redo = False
+    if (0): # check also if nenumber has changed, causing regeneration of the solver file
+        FP         =  open(solver, "rb")
+        tmp_NFREQ  =  np.fromfile(FP, np.int32, 1)[0]            # NFREQ
+        FREQ       =  np.fromfile(FP, np.float32, tmp_NFREQ)     # FREQ[NFREQ]
+        np.fromfile(FP, np.float32, 1)                           # GRAIN_DENSITY
+        tmp_NSIZE  =  np.fromfile(FP, np.int32, 1)[0]            # NSIZE
+        tmp_ASIZE  =  np.fromfile(FP, np.float32, tmp_NSIZE)     # ASIZE added to solver files 2021-04-26
+        tmp_S_FRAC =  np.fromfile(FP, np.float32, tmp_NSIZE)     # S_FRAC==DUST::S_FRAC/GRAIN_DENSITY; sum(S_FRAC)==1
+        tmp_NE     =  np.fromfile(FP, np.int32, 1)[0]            # NE
+        FP.close()
+        if (tmp_NE != nenumber): redo = True
+        
     if (redo):
         print("================================================================================")
         print('A2E_pre.py %s.dust freq.dat %s %d' % (dust, solver, nenumber)) # gs_aSilx.dust -> aSilx.solver

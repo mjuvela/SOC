@@ -140,7 +140,11 @@ else:
 IBG               =  read_background_intensity(USER)
 LPS               =  read_source_luminosities(USER)   # LPS[USER.NO_PS, USER.NFREQ]
 # Read cloud file and scale densities; also updates USER.AREA/AXY/AXZ/AXZ
-NX, NY, NZ, LEVELS, CELLS, LCELLS, OFF, DENS = read_cloud(USER)
+NX, NY, NZ, LEVELS, CELLS, LCELLS, OFF, DENS = read_cloud(USER)  # CELLS limit is int32 max=2147483647
+# to allow byte calculations beyond 2^32-1 elements, convert CELLS to float64
+# note that maximum cell count 2^31-1 results in maximum allocation for DENS of 8589934588 bytes (float32 elements)
+# OpenCL implementation may restrict the maximum allocation further.
+CELLS = int64(CELLS)  
 # ROI dimensions (if any)
 # ROI_NX, ROI_NY, ROI_NZ   =  (ROI[1]-ROI[0]+1), (ROI[3]-ROI[2]+1), (ROI[5]-ROI[4]+1)
 # Read dust population abundances, either [] or ABU[CELLS,NDUST] for WITH_MSF
@@ -420,34 +424,50 @@ NEED_EMIT_BUF = (USER.LOAD_TEMPERATURE) | (DFPAC>0) | (CLPAC>0) | (not(USER.NOSO
 
 
 for ID in range(DEVICES):
+    print("==================== Create buffers ====================") 
     LCELLS_buf.append( cl.Buffer(context[ID], mf.READ_ONLY,  LCELLS.nbytes))
     OFF_buf.append(    cl.Buffer(context[ID], mf.READ_ONLY,  OFF.nbytes))
-    DENS_buf.append(   cl.Buffer(context[ID], mf.READ_ONLY,  DENS.nbytes))  # float
+    DENS_buf.append(   cl.Buffer(context[ID], mf.READ_ONLY,  DENS.nbytes))  # maximum 2^31-1 = 2147483647 cells
     RA_buf.append(     cl.Buffer(context[ID], mf.READ_ONLY,  RA.nbytes))
     DE_buf.append(     cl.Buffer(context[ID], mf.READ_ONLY,  DE.nbytes))
     if (WITH_MSF==0):
         DSC_buf.append(    cl.Buffer(context[ID], mf.READ_ONLY,  4*USER.DSC_BINS))
         CSC_buf.append(    cl.Buffer(context[ID], mf.READ_ONLY,  4*USER.DSC_BINS))
     else:
-        DSC_buf.append(    cl.Buffer(context[ID], mf.READ_ONLY,  4*USER.DSC_BINS*NDUST))
-        CSC_buf.append(    cl.Buffer(context[ID], mf.READ_ONLY,  4*USER.DSC_BINS*NDUST))
-    PAR_buf.append(    cl.Buffer(context[ID], mf.READ_WRITE, 4*max([1, (CELLS-NX*NY*NZ)])) )  # 2019-02-19
+        num = 4*USER.DSC_BINS*NDUST
+        DSC_buf.append(    cl.Buffer(context[ID], mf.READ_ONLY,  num))
+        CSC_buf.append(    cl.Buffer(context[ID], mf.READ_ONLY,  num))
+    print("==================== CELLS %.3e cells, CELLS-NX*NY*NZ = %.3e cells" % (CELLS, CELLS-NX*NY*NZ))
+    """
+    CELLS 1e9 ok... but 4B*CELLS is overflow (int32??)
+       NVIDIA 4070,  Max memory allocation  2049064960 (1.908GiB)
+                    ... that is only 512 million 4-byte float32 numbers
+       The largest allocation is  4*(CELLS-NX*NY*NZ)....
+       For example  001479_MAXL4_roll.soc   = 512**3 root, total 1.011e+09 cells
+                    maximum allocation  PAR   =  CELLS-NX*NY*NZ = 8.767e+08 cells  !!!
+                    maximum allocation  DENS  =  CELLS = 1.01e+09 cells !!!
+       and
+             NVIDIA 4070 max memory allocation 1.91  GiB   =  2.05e9  bytes  addressable with 32 bits
+             POCL max memory allocation        31.26 GiB   =  2.28e10 bytes  not addressable with 32 bits
+    
+    """
+    PAR_buf.append(    cl.Buffer(context[ID], mf.READ_WRITE, 4*max([1, (CELLS-int(NX)*NY*NZ)]))   )  # 2019-02-19
     if (NEED_EMIT_BUF):
-        # print("EMIT_buf allocated for CELLS")
-        EMIT_buf.append(   cl.Buffer(context[ID], mf.READ_ONLY,  4*CELLS))
+        # EMIT = maximum of 4 * (2^31-1) = 8589934588 bytes
+        EMIT_buf.append(   cl.Buffer(context[ID], mf.READ_ONLY,  4*CELLS)) 
     else:
         EMIT_buf.append(   cl.Buffer(context[ID], mf.READ_ONLY,  4))   # dummy buffer !!
 
     # print("TABS allocated for CELLS")
-    TABS_buf.append(   cl.Buffer(context[ID], mf.READ_WRITE, 4*CELLS))
+    TABS_buf.append(   cl.Buffer(context[ID], mf.READ_WRITE, 4*CELLS) )               # max 8589934588 bytes
     PS_buf.append(     cl.Buffer(context[ID], mf.READ_ONLY,  4*max([1,USER.NO_PS])))
     PSPOS_buf.append(  cl.Buffer(context[ID], mf.READ_ONLY,  USER.PSPOS.nbytes))
     if (USER.WITH_ALI):
-        XAB_buf.append(    cl.Buffer(context[ID], mf.READ_WRITE, 4*CELLS))
+        XAB_buf.append(    cl.Buffer(context[ID], mf.READ_WRITE, 4*CELLS))            # max 8589934588 bytes
     else:
         XAB_buf.append(    cl.Buffer(context[ID], mf.READ_WRITE, 4))  # dummy
     if (USER.USE_EMWEIGHT==2):
-        EMINDEX_buf.append( cl.Buffer(context[ID], mf.READ_ONLY, 4*CELLS))
+        EMINDEX_buf.append( cl.Buffer(context[ID], mf.READ_ONLY, 4*CELLS))            # max 8589934588 bytes
     else:
         EMINDEX_buf.append( cl.Buffer(context[ID], mf.READ_ONLY, 4))  # dummy
         
@@ -455,7 +475,8 @@ for ID in range(DEVICES):
         if (USER.OPT_IS_HALF):
             OPT_buf.append( cl.Buffer(context[ID], mf.READ_ONLY, 2*CELLS*2))  # ABS, SCA
         else:
-            OPT_buf.append( cl.Buffer(context[ID], mf.READ_ONLY, 4*CELLS*2))  # ABS, SCA
+            #  Could be the largest buffer, theoretical maximum size (2^32-1)*4  =  1.718e+10 bytes !!
+            OPT_buf.append( cl.Buffer(context[ID], mf.READ_ONLY, 4*CELLS*2))  # ABS, SCA... 
     else:
         OPT_buf.append( cl.Buffer(context[ID], mf.READ_ONLY, 4*3))  # DUMMY
     if (len(HPBG)>0):
@@ -483,7 +504,8 @@ for ID in range(DEVICES):
     else:
         ABS_buf.append(  cl.Buffer(context[ID], mf.READ_ONLY,  4*NDUST)  )
         SCA_buf.append(  cl.Buffer(context[ID], mf.READ_ONLY,  4*NDUST)  )
-        ABU_buf.append(  cl.Buffer(context[ID], mf.READ_ONLY,  4*NDUST*CELLS)   )  
+        # Could be the largest buffer, theoretical maximum 4*DUST*(2^32-1)   =   NDUST * 8.590e+09 bytes
+        ABU_buf.append(  cl.Buffer(context[ID], mf.READ_ONLY,  4*NDUST*CELLS) ) 
         ABS, SCA = zeros(NDUST, float32), zeros(NDUST, float32)
     # Buffers for split-packages kernel,  we have work item per 100 surface elements
     # 512^3 root grid, MAXL=7 => (6*512**2/100.0)*(3**6)*12*4B = 0.51 GB
@@ -528,7 +550,7 @@ EMWEI, EMWEI_buf = [], []
 if (USER.USE_EMWEIGHT>0):
     pac       = max([CLPAC, DFPAC])                     #  equal or CLPAC=0 and DFPAC>0
     EMWEI     = ones(CELLS, float32)  * (pac/CELLS)     # could be ushort, 0-65k packages per cell?
-    EMWEI_buf.append( cl.Buffer(context[ID], mf.READ_ONLY, 4*CELLS) )
+    EMWEI_buf.append( cl.Buffer(context[ID], mf.READ_ONLY, 4*CELLS) )  # max 2^31-1 = 2147483647 cells *  4B
 else:    
     EMWEI_buf.append( cl.Buffer(context[ID], mf.READ_ONLY, 4) )  # dummy buffer
 EMWEIGHT_IGNORE = 0.0
@@ -538,7 +560,7 @@ EMWEIGHT_IGNORE = 0.0
 INT_buf, INTX_buf, INTY_buf, INTZ_buf = [], [], [], []
 if (USER.SAVE_INTENSITY==2): # save total intensity and anisotropy
     for ID in range(DEVICES):
-        INT_buf.append(  cl.Buffer(context[ID], mf.WRITE_ONLY, 4*CELLS) )
+        INT_buf.append(  cl.Buffer(context[ID], mf.WRITE_ONLY, 4*CELLS) )   # max 8589934588 B
         INTX_buf.append( cl.Buffer(context[ID], mf.WRITE_ONLY, 4*CELLS) )
         INTY_buf.append( cl.Buffer(context[ID], mf.WRITE_ONLY, 4*CELLS) )
         INTZ_buf.append( cl.Buffer(context[ID], mf.WRITE_ONLY, 4*CELLS) )
@@ -681,7 +703,7 @@ if (USER.LOAD_TEMPERATURE):
     try:
         TNEW     = read_otfile(USER.file_temperature)
         if (len(TNEW)<CELLS):
-            if (VERBOSE): print("Old temperature file contained %d < %d temperature values" % (len(TNEW),CELLS))
+            if (VERBOSE): print("Old temperature file contained %d < %d temperature values" % (len(TNEW), CELLS))
             # One may have added another hierarchy level...
             if (len(TNEW)!=(CELLS-LCELLS[LEVELS-1])):            
                 throw(1)   # no -- we cannot use the old file
@@ -2323,7 +2345,7 @@ if ('SUBITERATIONS' in USER.KEYS):
         else:
             # RAM2 version --- each work item loops over cells =>  GLOBAL<CELLS, BATCH==packets per cell
             GLOBAL, BATCH  =  GLOBAL_0,  max([1,int(CLPAC/CELLS)])
-            if (VERBOSE): print('=== CLPAC %d, GLOBAL %d, BATCH %d' % (CELLS*BATCH, GLOBAL, BATCH))
+            if (VERBOSE): print('=== CLPAC %d, GLOBAL %d, BATCH %d' % (int64(CELLS)*BATCH, GLOBAL, BATCH))
                 
         assert(CLPAC>0)
         
@@ -3443,7 +3465,7 @@ if (MAP_FAST):
         npix   = USER.NPIX['x'] * USER.NPIX['y']
         GLOBAL = int((1+floor(npix/LOCAL))*LOCAL)
     # Note -- MAP has already been allocated MAP[npix]
-    EMITX      = zeros(CELLS*NF, float32)
+    EMITX      = zeros(int64(CELLS)*NF, float32)       # problems if number of elements > 2147483647 !!
     MAPX       = zeros(npix*NF, float32)
     ABSX       = zeros(NF, float32)
     SCAX       = zeros(NF, float32)        

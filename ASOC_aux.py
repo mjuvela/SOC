@@ -757,12 +757,13 @@ def read_cloud(USER):
         fp.close()
         USER.file_cloud = newname
         fp = open(USER.file_cloud, 'rb')
+        #  !!!! note that current file format limits the total number of cells to int32 ~ 2.14e9 cells !!
         NX, NY, NZ, LEVELS, CELLS = fromfile(fp, int32, 5)
         # print("NX %d, NY %d, NZ %d LEVELS %d, CELLS %d" % (NX, NY, NZ, LEVELS, CELLS))
     #
     LCELLS = zeros(LEVELS, int32)
     OFF    = zeros(LEVELS, int32)
-    DENS   = zeros(CELLS, float32)
+    DENS   = zeros(CELLS,  float32)
     TRUE_CELLS = 0
     cells      = 0
     kdensity   = USER.KDENSITY    # scaling requested in the ini file
