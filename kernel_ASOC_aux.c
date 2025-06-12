@@ -37,6 +37,12 @@
 #endif // ------------------------------------------------------------
 
 
+#if (CELLS>=1073741823) // if OPT has more than 2^31-1 elements => index OPT using GOPT(long)
+#define CAST  (long)
+#else
+#define CAST  (int)
+#endif
+
 #if (NX>DIMLIM)  // from Index()
 # define ZERO 0.0
 # define HALF 0.5
@@ -129,10 +135,15 @@ void IndexG(float3 *pos, int *level, int *ind, __global float *DENS, __constant 
    //    level  =  hierarchy level on which the cell resides, 0 = root grid
    //    ind    =  index to global array of densities for cells at this level
    // Note: we need (not here) arrays that give for each cell its parent cell
-   // first the root level
+   //       first the root level
+   // Note: *ind has the maximum value of the maximum number of cells per hierarchy level
+   //        => maximum 2147483647 cells per level
+   //           ASOC.py already has a limitation to a maximum of 2147483647 for the *total* number of cells.
+   //           :: 2025-04-27 => with this upper limit, kernels are able to use int32 cell indices
+   //                            ... 
    *ind = -1 ;
    if (((*pos).x<=0.0f)||((*pos).y<=0.0f)||((*pos).z<=0.0f)) return  ;
-   if (((*pos).x>=NX)  ||((*pos).y>=NY)  ||((*pos).z>=NZ)) return  ;
+   if (((*pos).x>=NX)  ||((*pos).y>=NY)  ||((*pos).z>=NZ))   return  ;
    *level = 0 ;
    *ind   = (int)floor((*pos).z)*NX*NY + (int)floor((*pos).y)*NX + (int)floor((*pos).x) ;
    if (DENS[*ind]>0.0f) return ;  // found a leaf
@@ -154,6 +165,7 @@ void IndexG(float3 *pos, int *level, int *ind, __global float *DENS, __constant 
 }
 
 
+
 void RootPos(float3 *POS, const int ilevel, const int iind, __constant int *OFF, __global int *PAR) {
    // Given current coordinates (ilevel, iind) and current position POS, return the 
    // position in the root grid coordinates.
@@ -161,6 +173,7 @@ void RootPos(float3 *POS, const int ilevel, const int iind, __constant int *OFF,
    if (level==0) return ;
    // Otherwise go UP
    while (level>0) {
+      // PAR ihas maximum  (2^31-1)-NX*NY*NZ < 2147483647 elements that can be index with int32
       ind  =  PAR[OFF[level]+ind-NX*NY*NZ] ;  level-- ;  // parent cell index
       if (level==0) {              // arrived at root grid
          *POS     *=  0.5f ;       // sub-octet coordinates [0,2] into global coordinates [0,1]
@@ -178,6 +191,7 @@ void RootPos(float3 *POS, const int ilevel, const int iind, __constant int *OFF,
 
 
 
+
 #if 1  // @i pre 2020-07-18  --- use this one, the alternative (new) is worse!
 
 
@@ -188,6 +202,7 @@ void Index(float3 *pos, int *level, int *ind,
    //   on return these will be the new coordinates or ind=-1 == one has exited
    // Assume that one has already checked that the neighbour is not just another cell in the
    //   current octet
+   // Note: ind < CELLS can be indexed with int32
    int sid ;
 # if (NX>DIMLIM)  // MUST AGREE WITH DEFS AT THE BEGINNING OF THIS FILE
    double3  POS ;
@@ -783,7 +798,7 @@ __kernel void Emission(const float     FREQ,
    // Calculate emission based on temperature (non-equilibrium grains)
    int id = get_global_id(0) ;
    int gs = get_global_size(0) ;
-   if (id>CELLS) return ;
+   if (id>=CELLS) return ;
    for(int i=id; i<CELLS; i+=gs) {
       // 1.0e20*4.0*PI/(PLANCK*FFREQ[a:b])) * FABS[a:b]*Planck(FFREQ[a:b], TNEW[icell])/(USER.GL*PARSEC)
       // 1e20 * 4 *pi / (h*f) = 1.8965044e+47

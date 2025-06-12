@@ -229,7 +229,7 @@ __kernel void SimRAM_HP(const      int      PACKETS,   //  0 - number of packets
          oind    =  OFF[level0]+ind0 ;
          ds      =  GetStep(&POS0, &DIR, &level0, &ind0, DENS, OFF, PAR) ; // POS, level, ind updated !!
 # if (WITH_ABU>0)
-         tau    +=  ds*DENS[oind]*GOPT(2*oind+1) ;
+         tau    +=  ds*DENS[oind]*GOPT(2*((long)oind)+1) ;
 # else
          tau    +=  ds*DENS[oind]*(*SCA) ;
 # endif
@@ -267,7 +267,7 @@ __kernel void SimRAM_HP(const      int      PACKETS,   //  0 - number of packets
             ds        =  GetStep(&POS, &DIR, &level, &ind, DENS, OFF, PAR) ; // POS, level, ind updated !!
             // step ds from cell [ind0,level0,oind] to cell [ind, level]
 #if (WITH_ABU>0)
-            dtau      =  ds*DENS[oind]*GOPT(2*oind+1) ;
+            dtau      =  ds*DENS[oind]*GOPT(2*((long)oind)+1) ;
 #else
             dtau      =  ds*DENS[oind]*(*SCA) ;
 #endif       
@@ -290,7 +290,7 @@ __kernel void SimRAM_HP(const      int      PACKETS,   //  0 - number of packets
          scatterings++ ;
          // dtau               =  free_path-tau ;
 #if (WITH_ABU>0)
-         ds                 =  (free_path-tau)/(GOPT(2*oind+1)*DENS[oind]) ; 
+         ds                 =  (free_path-tau)/(GOPT(2*((long)oind)+1)*DENS[oind]) ; 
 #else
          ds                 =  (free_path-tau)/((*SCA)*DENS[oind]) ;    // actual step forward in GLOBAL coordinates
 #endif
@@ -298,7 +298,7 @@ __kernel void SimRAM_HP(const      int      PACKETS,   //  0 - number of packets
          POS0               =  POS0 + ds*DIR ;            // POS0 becomes the position of the scattering
          // remove absorptions since last scattering
 #if (WITH_ABU>0)
-         PHOTONS           *=  exp(-free_path*GOPT(2*oind)/GOPT(2*oind+1)) ;
+         PHOTONS           *=  exp(-free_path*GOPT(2*((long)oind))/GOPT(2*((long)oind)+1)) ;
 #else
          PHOTONS           *=  exp(-free_path*(*ABS)/(*SCA)) ;
 #endif         
@@ -329,7 +329,7 @@ __kernel void SimRAM_HP(const      int      PACKETS,   //  0 - number of packets
                ds     =  min(dx, GetStep(&POS, &ODIR, &level, &ind, DENS, OFF, PAR))+1.0e-6f ;
                dx    -=  ds ;   // length left
 #if (WITH_ABU>0)
-               tau   +=  ds*DENS[oind]*(GOPT(2*oind)+GOPT(2*oind+1)) ;
+               tau   +=  ds*DENS[oind]*(GOPT(2*((long)oind))+GOPT(2*((long)oind)+1)) ;
 #else               
                tau   +=  ds*DENS[oind]*((*ABS)+(*SCA))   ;
 #endif
@@ -339,10 +339,10 @@ __kernel void SimRAM_HP(const      int      PACKETS,   //  0 - number of packets
 #if (WITH_MSF>0)
             // Using DSC of a randomly selected dust component -> set idust
             oind      =  OFF[level0]+ind0 ;                   // back to the scattering cell
-            dx        =  GOPT(2*oind+1) ;                     // sum(ABU*SCA) for the current cell
+            dx        =  GOPT(2*((long)oind)+1) ;                     // sum(ABU*SCA) for the current cell
             ds        =  0.99999f*Rand(&rng) ;
             for(idust=0; idust<NDUST; idust++) {
-               ds -= ABU[idust+NDUST*oind]*SCA[idust] / dx ;
+               ds -= ABU[idust+NDUST*((long)oind)]*SCA[idust] / dx ;
                if (ds<=0.0f) break ;
             }                        
 #endif
@@ -372,7 +372,7 @@ __kernel void SimRAM_HP(const      int      PACKETS,   //  0 - number of packets
                   oind   =  OFF[level]+ind ;   // cell index at the start of the step
                   ds     =  GetStep(&POS, &ODIR, &level, &ind, DENS, OFF, PAR) ; // POS updated !!
 #if (WITH_ABU>0)
-                  tau   +=  ds*DENS[oind]*(GOPT(2*oind)+GOPT(2*oind+1)) ;
+                  tau   +=  ds*DENS[oind]*(GOPT(2*((long)oind))+GOPT(2*((long)oind)+1)) ;
 #else               
                   tau   +=  ds*DENS[oind]*((*ABS)+(*SCA))   ;
 #endif
@@ -382,10 +382,10 @@ __kernel void SimRAM_HP(const      int      PACKETS,   //  0 - number of packets
 #if (WITH_MSF>0)
                // Using DSC of a randomly selected dust component -> set idust
                oind      =  OFF[level0]+ind0 ;                   // back to the scattering cell
-               dx        =  GOPT(2*oind+1) ;                     // sum(ABU*SCA) for the current cell
+               dx        =  GOPT(2*((long)oind)+1) ;                     // sum(ABU*SCA) for the current cell
                ds        =  0.99999f*Rand(&rng) ;
                for(idust=0; idust<NDUST; idust++) {
-                  ds -= ABU[idust+NDUST*oind]*SCA[idust] / dx ;
+                  ds -= ABU[idust+NDUST*((long)oind)]*SCA[idust] / dx ;
                   if (ds<=0.0f) break ;
                }                        
 #endif
@@ -423,10 +423,10 @@ __kernel void SimRAM_HP(const      int      PACKETS,   //  0 - number of packets
 #if (WITH_MSF==0)
          Scatter(&DIR, CSC, &rng) ;              // new direction, basic case with a single scattering function
 #else
-         dx        =  GOPT(2*oind+1) ;           // sum(ABU*SCA) for the current cell
+         dx        =  GOPT(2*((long)oind)+1) ;           // sum(ABU*SCA) for the current cell
          ds        =  0.99999f*Rand(&rng) ;
          for(idust=0; idust<NDUST; idust++) {
-            ds -= ABU[idust+NDUST*oind]*SCA[idust] / dx ;
+            ds -= ABU[idust+NDUST*((long)oind)]*SCA[idust] / dx ;
             if (ds<=0.0) break ;
          }
          Scatter(&DIR, &CSC[idust*BINS], &rng) ; // use the scattering function of the ind0:th dust species
@@ -895,7 +895,7 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
          oind    =  OFF[level0]+ind0 ;
          ds      =  GetStep(&POS0, &DIR, &level0, &ind0, DENS, OFF, PAR) ; // POS, level, ind updated !!
 # if (WITH_ABU>0)
-         tau    +=  ds*DENS[oind]*GOPT(2*oind+1) ;
+         tau    +=  ds*DENS[oind]*GOPT(2*((long)oind)+1) ;
 # else
          tau    +=  ds*DENS[oind]*(*SCA) ;
 # endif
@@ -927,7 +927,7 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
             oind      =  OFF[level0]+ind0 ;  // global index at the beginning of the step
             ds        =  GetStep(&POS, &DIR, &level, &ind, DENS, OFF, PAR) ; // POS, level, ind updated !!
 #if (WITH_ABU>0)
-            dtau      =  ds*DENS[oind]*GOPT(2*oind+1) ;
+            dtau      =  ds*DENS[oind]*GOPT(2*((long)oind)+1) ;
 #else
             dtau      =  ds*DENS[oind]*(*SCA) ;
 #endif
@@ -951,7 +951,7 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
          scatterings++ ;
          dtau               =  free_path-tau ;
 #if (WITH_ABU>0)
-         dx                 =  dtau/(GOPT(2*oind+1)*DENS[oind]) ;
+         dx                 =  dtau/(GOPT(2*((long)oind)+1)*DENS[oind]) ;
 #else
          dx                 =  dtau/((*SCA)*DENS[oind]) ;    // actual step forward in GLOBAL coordinates
 #endif
@@ -959,7 +959,7 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
          POS0               =  POS0 + dx*DIR ;            // POS0 becomes the position of the scattering
          // remove absorptions since last scattering
 #if (WITH_ABU>0)  // OPT contains per-cell values
-         PHOTONS           *=  exp(-free_path*GOPT(2*oind)/GOPT(2*oind+1)) ;
+         PHOTONS           *=  exp(-free_path*GOPT(2*((long)oind))/GOPT(2*((long)oind)+1)) ;
 #else
          PHOTONS           *=  exp(-free_path*(*ABS)/(*SCA)) ;
 #endif
@@ -982,7 +982,7 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
                ds     =  min(dx, GetStep(&POS, &ODIR, &level, &ind, DENS, OFF, PAR)) + 1.0e-6 ;
                dx    -=  ds ;  // in root grid coordinates
 #if (WITH_ABU>0)
-               tau   +=  ds*DENS[oind]*(GOPT(2*oind)+GOPT(2*oind+1)) ;
+               tau   +=  ds*DENS[oind]*(GOPT(2*((long)oind))+GOPT(2*((long)oind)+1)) ;
 #else
                tau   +=  ds*DENS[oind]*((*ABS)+(*SCA)) ;
 #endif
@@ -992,10 +992,10 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
 #if (WITH_MSF>0)
             // Using DSC of a randomly selected dust component
             oind      =  OFF[level0]+ind0 ;                   // back to the scattering cell
-            dx        =  GOPT(2*oind+1) ;                     // sum(ABU*SCA) for the current cell
+            dx        =  GOPT(2*((long)oind)+1) ;             // sum(ABU*SCA) for the current cell
             ds        =  0.99999f*Rand(&rng) ;
             for(idust=0; idust<NDUST; idust++) {             // ind0 ~ dust index
-               ds -= ABU[idust+NDUST*oind]*SCA[idust] / dx ; // RE-USING ind0 and free_path
+               ds -= ABU[idust+NDUST*((long)oind)]*SCA[idust] / dx ; // RE-USING ind0 and free_path
                if (ds<=0.0f) break ;
             }   
 #endif
@@ -1017,7 +1017,7 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
                   oind   =  OFF[level]+ind ;   // need to store index of the cell at the step beginning
                   ds     =  GetStep(&POS, &ODIR, &level, &ind, DENS, OFF, PAR) ;
 #if (WITH_ABU>0)
-                  tau   +=  ds*DENS[oind]*(GOPT(2*oind)+GOPT(2*oind+1)) ;
+                  tau   +=  ds*DENS[oind]*(GOPT(2*((long)oind))+GOPT(2*((long)oind)+1)) ;
 #else
                   tau   +=  ds*DENS[oind]*((*ABS)+(*SCA)) ;
 #endif
@@ -1027,10 +1027,10 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
 #if (WITH_MSF>0)
                // Using DSC of a randomly selected dust component
                oind      =  OFF[level0]+ind0 ;                   // back to the scattering cell
-               dx        =  GOPT(2*oind+1) ;                     // sum(ABU*SCA) for the current cell
+               dx        =  GOPT(2*((long)oind)+1) ;             // sum(ABU*SCA) for the current cell
                ds        =  0.99999f*Rand(&rng) ;
                for(idust=0; idust<NDUST; idust++) {             // ind0 ~ dust index
-                  ds -= ABU[idust+NDUST*oind]*SCA[idust] / dx ; // RE-USING ind0 and free_path
+                  ds -= ABU[idust+NDUST*((long)oind)]*SCA[idust] / dx ; // RE-USING ind0 and free_path
                   if (ds<=0.0f) break ;
                }   
 #endif
@@ -1055,10 +1055,10 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
 #if (WITH_MSF==0)
          Scatter(&DIR, CSC, &rng) ;             // new direction, basic case with a single scattering function
 #else
-         dx        =  GOPT(2*oind+1) ;           // sum(ABU*SCA) for the current cell
+         dx        =  GOPT(2*((long)oind)+1) ;           // sum(ABU*SCA) for the current cell
          ds        =  0.99999f*Rand(&rng) ;
          for(idust=0; idust<NDUST; idust++) {             
-            ds -= ABU[idust+NDUST*oind]*SCA[idust] / dx ;
+            ds -= ABU[idust+NDUST*((long)oind)]*SCA[idust] / dx ;
             if (ds<=0.0f) break ;
          }
          Scatter(&DIR, &CSC[idust*BINS], &rng) ; // use the scattering function of the ind0:th dust species
@@ -1235,7 +1235,7 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
          oind    =  OFF[level0]+ind0 ;
          ds      =  GetStep(&POS0, &DIR, &level0, &ind0, DENS, OFF, PAR) ; // POS, level, ind updated !!
 # if (WITH_ABU>0)
-         tau    +=  ds*DENS[oind]*GOPT(2*oind+1) ;
+         tau    +=  ds*DENS[oind]*GOPT(2*((long)oind)+1) ;
 # else
          tau    +=  ds*DENS[oind]*(*SCA) ;
 # endif
@@ -1267,7 +1267,7 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
             ds        =  GetStep(&POS, &DIR, &level, &ind, DENS, OFF, PAR) ; // POS, level, ind updated !!
             // step ds from cell [ind0,level0,oind] to cell [ind, level]
 #if (WITH_ABU>0)
-            dtau      =  ds*DENS[oind]*GOPT(2*oind+1) ;
+            dtau      =  ds*DENS[oind]*GOPT(2*((long)oind)+1) ;
 #else
             dtau      =  ds*DENS[oind]*(*SCA) ;
 #endif       
@@ -1291,7 +1291,7 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
          scatterings++ ;
          // dtau               =  free_path-tau ;
 #if (WITH_ABU>0)
-         ds                 =  (free_path-tau)/(GOPT(2*oind+1)*DENS[oind]) ; 
+         ds                 =  (free_path-tau)/(GOPT(2*((long)oind)+1)*DENS[oind]) ; 
 #else
          ds                 =  (free_path-tau)/((*SCA)*DENS[oind]) ;    // actual step forward in GLOBAL coordinates
 #endif
@@ -1299,7 +1299,7 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
          POS0               =  POS0 + ds*DIR ;            // POS0 becomes the position of the scattering
          // remove absorptions since last scattering
 #if (WITH_ABU>0)
-         PHOTONS           *=  exp(-free_path*GOPT(2*oind)/GOPT(2*oind+1)) ;
+         PHOTONS           *=  exp(-free_path*GOPT(2*((long)oind))/GOPT(2*((long)oind)+1)) ;
 #else
          PHOTONS           *=  exp(-free_path*(*ABS)/(*SCA)) ;
 #endif         
@@ -1323,7 +1323,7 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
                ds     =  min(dx, GetStep(&POS, &ODIR, &level, &ind, DENS, OFF, PAR)) + 1.0e-6f;
                dx    -=  ds ;
 #if (WITH_ABU>0)
-               tau   +=  ds*DENS[oind]*(GOPT(2*oind)+GOPT(2*oind+1)) ;
+               tau   +=  ds*DENS[oind]*(GOPT(2*((long)oind))+GOPT(2*((long)oind)+1)) ;
 #else               
                tau   +=  ds*DENS[oind]*((*ABS)+(*SCA))   ;
 #endif
@@ -1333,10 +1333,10 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
 #if (WITH_MSF>0)
             // Using DSC of a randomly selected dust component -> set idust
             oind      =  OFF[level0]+ind0 ;                   // back to the scattering cell
-            dx        =  GOPT(2*oind+1) ;                     // sum(ABU*SCA) for the current cell
+            dx        =  GOPT(2*((long)oind)+1) ;                     // sum(ABU*SCA) for the current cell
             ds        =  0.99999f*Rand(&rng) ;
             for(idust=0; idust<NDUST; idust++) {
-               ds -= ABU[idust+NDUST*oind]*SCA[idust] / dx ;
+               ds -= ABU[idust+NDUST*((long)oind)]*SCA[idust] / dx ;
                if (ds<=0.0) break ;
             }                        
 #endif
@@ -1367,7 +1367,7 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
                   oind   =  OFF[level]+ind ;   // cell index at the start of the step
                   ds     =  GetStep(&POS, &ODIR, &level, &ind, DENS, OFF, PAR) ; // POS updated !!
 #if (WITH_ABU>0)
-                  tau   +=  ds*DENS[oind]*(GOPT(2*oind)+GOPT(2*oind+1)) ;
+                  tau   +=  ds*DENS[oind]*(GOPT(2*((long)oind))+GOPT(2*((long)oind)+1)) ;
 #else               
                   tau   +=  ds*DENS[oind]*((*ABS)+(*SCA))   ;
 #endif
@@ -1377,10 +1377,10 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
 #if (WITH_MSF>0)
                // Using DSC of a randomly selected dust component -> set idust
                oind      =  OFF[level0]+ind0 ;                   // back to the scattering cell
-               dx        =  GOPT(2*oind+1) ;                     // sum(ABU*SCA) for the current cell
+               dx        =  GOPT(2*((long)oind)+1) ;                     // sum(ABU*SCA) for the current cell
                ds        =  0.99999f*Rand(&rng) ;
                for(idust=0; idust<NDUST; idust++) {
-                  ds -= ABU[idust+NDUST*oind]*SCA[idust] / dx ;
+                  ds -= ABU[idust+NDUST*((long)oind)]*SCA[idust] / dx ;
                   if (ds<=0.0) break ;
                }                        
 #endif
@@ -1417,10 +1417,10 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
 #if (WITH_MSF==0)
          Scatter(&DIR, CSC, &rng) ;              // new direction, basic case with a single scattering function
 #else
-         dx        =  GOPT(2*oind+1) ;           // sum(ABU*SCA) for the current cell
+         dx        =  GOPT(2*((long)oind)+1) ;           // sum(ABU*SCA) for the current cell
          ds        =  0.99999f*Rand(&rng) ;
          for(idust=0; idust<NDUST; idust++) {
-            ds -= ABU[idust+NDUST*oind]*SCA[idust] / dx ;
+            ds -= ABU[idust+NDUST*((long)oind)]*SCA[idust] / dx ;
             if (ds<=0.0) break ;
          }
          Scatter(&DIR, &CSC[idust*BINS], &rng) ; // use the scattering function of the ind0:th dust species
@@ -1727,7 +1727,7 @@ __kernel void SimRAM_PS(const      int      PACKETS,   //  0 - number of packets
          oind    =  OFF[level0]+ind0 ;
          ds      =  GetStep(&POS0, &DIR, &level0, &ind0, DENS, OFF, PAR) ; // POS, level, ind updated !!
 # if (WITH_ABU>0)
-         tau    +=  ds*DENS[oind]*GOPT(2*oind+1) ;  // OPT DEFINED ONLY IN CASE OF WITH_ABU>0
+         tau    +=  ds*DENS[oind]*GOPT(2*((long)oind)+1) ;  // OPT DEFINED ONLY IN CASE OF WITH_ABU>0
 # else
          tau    +=  ds*DENS[oind]*(*SCA) ;
 # endif
@@ -1767,7 +1767,7 @@ __kernel void SimRAM_PS(const      int      PACKETS,   //  0 - number of packets
             oind      =  OFF[level0]+ind0 ;  // global index at the beginning of the step
             ds        =  GetStep(&POS, &DIR, &level, &ind, DENS, OFF, PAR) ; // POS, level, ind updated !!
 #if (WITH_ABU>0)
-            dtau      =  ds*DENS[oind]*GOPT(2*oind+1) ;
+            dtau      =  ds*DENS[oind]*GOPT(2*((long)oind)+1) ;
 #else
             dtau      =  ds*DENS[oind]*(*SCA) ;
 #endif
@@ -1790,7 +1790,7 @@ __kernel void SimRAM_PS(const      int      PACKETS,   //  0 - number of packets
          scatterings++ ;
          dtau               =  free_path-tau ;
 #if (WITH_ABU>0)
-         dx                 =  dtau/(GOPT(2*oind+1)*DENS[oind]) ;
+         dx                 =  dtau/(GOPT(2*((long)oind)+1)*DENS[oind]) ;
 #else
          dx                 =  dtau/((*SCA)*DENS[oind]) ;    // actual step forward in GLOBAL coordinates
 #endif
@@ -1798,7 +1798,7 @@ __kernel void SimRAM_PS(const      int      PACKETS,   //  0 - number of packets
          POS0               =  POS0 + dx*DIR ;            // POS0 becomes the position of the scattering
          // remove absorptions since last scattering
 #if (WITH_ABU>0)  // OPT contains per-cell values
-         PHOTONS           *=  native_exp(-free_path*GOPT(2*oind)/GOPT(2*oind+1)) ;
+         PHOTONS           *=  native_exp(-free_path*GOPT(2*((long)oind))/GOPT(2*((long)oind)+1)) ;
 #else
          PHOTONS           *=  native_exp(-free_path*(*ABS)/(*SCA)) ;
 #endif
@@ -1821,7 +1821,7 @@ __kernel void SimRAM_PS(const      int      PACKETS,   //  0 - number of packets
                ds     =  min(dx, GetStep(&POS, &ODIR, &level, &ind, DENS, OFF, PAR)) + 1.0e-6f ;
                dx    -=  ds ;  // in root grid coordinates
 #if (WITH_ABU>0)
-               tau   +=  ds*DENS[oind]*(GOPT(2*oind)+GOPT(2*oind+1)) ;
+               tau   +=  ds*DENS[oind]*(GOPT(2*((long)oind))+GOPT(2*((long)oind)+1)) ;
 #else
                tau   +=  ds*DENS[oind]*((*ABS)+(*SCA)) ;
 #endif
@@ -1831,10 +1831,10 @@ __kernel void SimRAM_PS(const      int      PACKETS,   //  0 - number of packets
 #if (WITH_MSF>0)  // WITH_MSF>0 means that also WITH_ABU>0
             // Using DSC of a randomly selected dust component
             oind      =  OFF[level0]+ind0 ;                   // back to the scattering cell
-            dx        =  GOPT(2*oind+1) ;                     // sum(ABU*SCA) for the current cell
+            dx        =  GOPT(2*((long)oind)+1) ;                     // sum(ABU*SCA) for the current cell
             ds        =  0.99999f*Rand(&rng) ;
             for(idust=0; idust<NDUST; idust++) {             // ind0 ~ dust index
-               ds -= ABU[idust+NDUST*oind]*SCA[idust] / dx ; // RE-USING ind0 and free_path
+               ds -= ABU[idust+NDUST*((long)oind)]*SCA[idust] / dx ; // RE-USING ind0 and free_path
                if (ds<=0.0) break ;
             }   
 #endif
@@ -1856,7 +1856,7 @@ __kernel void SimRAM_PS(const      int      PACKETS,   //  0 - number of packets
                   oind   =  OFF[level]+ind ;   // need to store index of the cell at the step beginning
                   ds     =  GetStep(&POS, &ODIR, &level, &ind, DENS, OFF, PAR) ;
 #if (WITH_ABU>0)
-                  tau   +=  ds*DENS[oind]*(GOPT(2*oind)+GOPT(2*oind+1)) ;
+                  tau   +=  ds*DENS[oind]*(GOPT(2*((long)oind))+GOPT(2*((long)oind)+1)) ;
 #else
                   tau   +=  ds*DENS[oind]*((*ABS)+(*SCA)) ;
 #endif
@@ -1866,10 +1866,10 @@ __kernel void SimRAM_PS(const      int      PACKETS,   //  0 - number of packets
 #if (WITH_MSF>0)
                // Using DSC of a randomly selected dust component
                oind      =  OFF[level0]+ind0 ;                   // back to the scattering cell
-               dx        =  GOPT(2*oind+1) ;                     // sum(ABU*SCA) for the current cell
+               dx        =  GOPT(2*((long)oind)+1) ;                     // sum(ABU*SCA) for the current cell
                ds        =  0.99999f*Rand(&rng) ;
                for(idust=0; idust<NDUST; idust++) {             // ind0 ~ dust index
-                  ds -= ABU[idust+NDUST*oind]*SCA[idust] / dx ; // RE-USING ind0 and free_path
+                  ds -= ABU[idust+NDUST*((long)oind)]*SCA[idust] / dx ; // RE-USING ind0 and free_path
                   if (ds<=0.0f) break ;
                }   
 #endif
@@ -1904,10 +1904,10 @@ __kernel void SimRAM_PS(const      int      PACKETS,   //  0 - number of packets
 # endif
 #else
          // WITH_MSF>0 means also WITH_ABU>0.... and OPT is defined, as used through GOPT
-         dx        =  GOPT(2*oind+1) ;           // sum(ABU*SCA) for the current cell
+         dx        =  GOPT(2*((long)oind)+1) ;           // sum(ABU*SCA) for the current cell
          ds        =  0.99999f*Rand(&rng) ;
          for(idust=0; idust<NDUST; idust++) {             
-            ds -= ABU[idust+NDUST*oind]*SCA[idust] / dx ;
+            ds -= ABU[idust+NDUST*((long)oind)]*SCA[idust] / dx ;
             if (ds<=0.0f) break ;
          }
          Scatter(&DIR, &CSC[idust*BINS], &rng) ; // use the scattering function of the ind0:th dust species

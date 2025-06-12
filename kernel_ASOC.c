@@ -562,16 +562,18 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
 #if (WITH_ROI_SAVE)
             oroi      =  roi ;             // status before step
 #endif
-            oind      =  OFF[level]+ind ;  // global index at the beginning of the step
+            oind      =  OFF[level]+ind ;  // global index at the beginning of the step, oind <= 2^32-1 = 2147483647
             ind0      =  ind ;             // indices at the beginning of the step
             level0    =  level ;
             POS0      =  POS ;   // because GetStep does coordinate transformations...
             ds        =  GetStep(&POS, &DIR, &level, &ind, DENS, OFF, PAR) ; // POS, level, ind updated !!
 #if (WITH_ABU>0)
-	    tauA      =  ds*DENS[oind]*GOPT(2*oind) ;    // OPT = total cross section, sum over dust species
-            dtau      =  ds*DENS[oind]*GOPT(2*oind+1) ;  // optical depth for scattering !!!
+            // TODO: OPT[] has number of elements twice the number of cells
+            //       if CELLS <= 2147483647,  2*oind overflows int32
+            tauA      =  ds*DENS[oind]*GOPT(2*(long)oind) ;    // OPT = total cross section, sum over dust species
+            dtau      =  ds*DENS[oind]*GOPT(2*(long)oind+1) ;  // optical depth for scattering !!!
 #else
-	    tauA      =  ds*DENS[oind]*(*ABS) ;          // ABS is basically a scalar
+            tauA      =  ds*DENS[oind]*(*ABS) ;          // ABS is basically a scalar
             dtau      =  ds*DENS[oind]*(*SCA) ;
 #endif
             if (free_path<(tau+dtau)) {  // tau = optical depth since last scattering
@@ -698,8 +700,8 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
          scatterings++ ;
          dtau               =  free_path-tau ;
 #if (WITH_ABU>0)
-         dx                 =  dtau/(GOPT(2*oind+1)*DENS[oind]) ;
-         tauA               =  dx*DENS[oind]*GOPT(2*oind) ;
+         dx                 =  dtau/(GOPT(2*(long)oind+1)*DENS[oind]) ;
+         tauA               =  dx*DENS[oind]*GOPT(2*(long)oind) ;
 #else
          dx                 =  dtau/((*SCA)*DENS[oind]) ;  // actual step forward in GLOBAL coordinates
          tauA               =  dx*DENS[oind]*(*ABS) ;
@@ -779,10 +781,10 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
          // We must select the scatterer -- using the properties of the cell with global index oind
          // and the relative values of ABU[oind*NDUST+idust]*SCA[idust] / OPT[2*oind+1]
          //  *** re-using ds, free_path, ind0 ***
-         dx     =  GOPT(2*oind+1) ;        // sum(ABU*SCA) for the current cell
+         dx     =  GOPT(2*(long)oind+1) ;        // sum(ABU*SCA) for the current cell
          ds     =  0.99999f*Rand(&rng) ;
          for(ind0=0; ind0<NDUST; ind0++) {   // ind0 ~ dust index
-            ds -= ABU[ind0+oind*NDUST]*SCA[ind0] / dx ;
+            ds -= ABU[ind0+((long)oind)*NDUST]*SCA[ind0] / dx ;  // maximum index CELLS*NDUST, could be > 2147483647 !
             if (ds<=0.0) break ;
          }
          if (ind0>=NDUST) {
@@ -992,7 +994,7 @@ __kernel void SimRAM_HP(const      int      PACKETS,  //  0 - number of packets
             POS0      =  POS ;   // because GetStep does coordinate transformations...
             ds        =  GetStep(&POS, &DIR, &level, &ind, DENS, OFF, PAR) ; // POS, level, ind updated !!
 #if (WITH_ABU>0)
-            dtau      =  ds*DENS[oind]*GOPT(2*oind+1) ;
+            dtau      =  ds*DENS[oind]*GOPT(2*(long)oind+1) ;
 #else
             dtau      =  ds*DENS[oind]*(*SCA) ;
 #endif
@@ -1001,7 +1003,7 @@ __kernel void SimRAM_HP(const      int      PACKETS,  //  0 - number of packets
                break ;            // scatter before ds
             }
 #if (WITH_ABU>0)
-            tauA      =  ds*DENS[oind]*GOPT(2*oind) ;
+            tauA      =  ds*DENS[oind]*GOPT(2*(long)oind) ;
 #else
             tauA      =  ds*DENS[oind]*(*ABS) ;
 #endif
@@ -1075,8 +1077,8 @@ __kernel void SimRAM_HP(const      int      PACKETS,  //  0 - number of packets
          scatterings++ ;
          dtau               =  free_path-tau ;
 #if (WITH_ABU>0)
-         dx                 =  dtau/(GOPT(2*oind+1)*DENS[oind]) ;
-         tauA               =  dx*DENS[oind]*GOPT(2*oind) ;
+         dx                 =  dtau/(GOPT(2*(long)oind+1)*DENS[oind]) ;
+         tauA               =  dx*DENS[oind]*GOPT(2*(long)oind) ;
 #else
          dx                 =  dtau/((*SCA)*DENS[oind]) ;  // actual step forward in GLOBAL coordinates
          tauA               =  dx*DENS[oind]*(*ABS) ;
@@ -1159,10 +1161,10 @@ __kernel void SimRAM_HP(const      int      PACKETS,  //  0 - number of packets
          // We must select the scatterer -- using the properties of the cell with global index oind
          // and the relative values of ABU[idust+NDUST*oind]*SCA[idust] / OPT[2*oind+1]
          //  *** re-using ds, free_path, ind0 ***
-         dx     =  GOPT(2*oind+1) ;        // sum(ABU*SCA) for the current cell
+         dx     =  GOPT(2*(long)oind+1) ;        // sum(ABU*SCA) for the current cell
          ds     =  0.99999f*Rand(&rng) ;
          for(ind0=0; ind0<NDUST; ind0++) {   // ind0 ~ dust index
-            ds -= ABU[ind0+NDUST*oind]*SCA[ind0] / dx  ;
+            ds -= ABU[ind0+NDUST*((long)oind)]*SCA[ind0] / dx  ;
             if (ds<=0.0) break ;
          }
          if (ind0>=NDUST) {
@@ -1456,7 +1458,7 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
             POS0      =  POS ;   // because GetStep does coordinate transformations...
             ds        =  GetStep(&POS, &DIR, &level, &ind, DENS, OFF, PAR) ; // POS, level, ind updated !!
 # if (WITH_ABU>0)
-            dtau      =  ds*DENS[oind]*GOPT(2*oind+1) ;
+            dtau      =  ds*DENS[oind]*GOPT(2*(long)oind+1) ;
 # else
             dtau      =  ds*DENS[oind]*(*SCA) ;
 # endif
@@ -1465,7 +1467,7 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
                break ;            // scatter before ds
             }
 # if (WITH_ABU>0)
-            tauA      =  ds*DENS[oind]*GOPT(2*oind) ;
+            tauA      =  ds*DENS[oind]*GOPT(2*(long)oind) ;
 # else
             tauA      =  ds*DENS[oind]*(*ABS) ;
 # endif
@@ -1565,8 +1567,8 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
 # endif
             dtau               =  free_path-tau ;
 # if (WITH_ABU>0)
-            dx                 =  dtau/(GOPT(2*oind+1)*DENS[oind]) ;
-            tauA               =  dx*DENS[oind]*GOPT(2*oind) ;
+            dx                 =  dtau/(GOPT(2*(long)oind+1)*DENS[oind]) ;
+            tauA               =  dx*DENS[oind]*GOPT(2*(long)oind) ;
 # else
             dx                 =  dtau/((*SCA)*DENS[oind]) ;  // actual step forward in GLOBAL coordinates
             tauA               =  dx*DENS[oind]*(*ABS) ;
@@ -1656,10 +1658,10 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
             // We must select the scatterer -- using the properties of the cell with global index oind
             // and the relative values of ABU[idust+NDUST*oind]*SCA[idust] / OPT[2*oind+1]
             //  *** re-using ds, free_path, ind0 ***
-            free_path =  GOPT(2*oind+1) ;        // sum(ABU*SCA) for the current cell
+            free_path =  GOPT(2*(long)oind+1) ;        // sum(ABU*SCA) for the current cell
             ds        =  0.99999f*Rand(&rng) ;
             for(ind0=0; ind0<NDUST; ind0++) {   // ind0 ~ dust index
-               ds -= ABU[ind0+NDUST*oind]*SCA[ind0] / GOPT(2*oind+1) ;
+               ds -= ABU[ind0+NDUST*((long)oind)]*SCA[ind0] / GOPT(2*(long)oind+1) ;
                if (ds<=0.0) break ;
             }
             if (ind0>=NDUST) {
@@ -1884,7 +1886,7 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
                POS0      =  POS ;   // because GetStep does coordinate transformations...
                ds        =  GetStep(&POS, &DIR, &level, &ind, DENS, OFF, PAR) ; // POS, level, ind updated !!
 # if (WITH_ABU>0)
-               dtau      =  ds*DENS[oind]*GOPT(2*oind+1) ;
+               dtau      =  ds*DENS[oind]*GOPT(2*(long)oind+1) ;
 # else
                dtau      =  ds*DENS[oind]*(*SCA) ;
 # endif
@@ -1893,7 +1895,7 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
                   break ;            // scatter before ds
                }
 # if (WITH_ABU>0)
-               tauA      =  ds*DENS[oind]*GOPT(2*oind) ;
+               tauA      =  ds*DENS[oind]*GOPT(2*(long)oind) ;
 # else
                tauA      =  ds*DENS[oind]*(*ABS) ;  // single dust or constant abundance = single float
 # endif
@@ -1988,8 +1990,8 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
 # endif
                dtau               =  free_path-tau ;
 # if (WITH_ABU>0)
-               dx                 =  dtau/(GOPT(2*oind+1)*DENS[oind]) ;  // actual step forward in GLOBAL coordinates
-               tauA               =  dx*DENS[oind]*GOPT(2*oind) ;
+               dx                 =  dtau/(GOPT(2*(long)oind+1)*DENS[oind]) ;  // actual step forward in GLOBAL coordinates
+               tauA               =  dx*DENS[oind]*GOPT(2*(long)oind) ;
 # else
                dx                 =  dtau/((*SCA)*DENS[oind]) ;  // actual step forward in GLOBAL coordinates
                tauA               =  dx*DENS[oind]*(*ABS) ;
@@ -2077,10 +2079,10 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
                // We must select the scatterer -- using the properties of the cell with global index oind
                // and the relative values of ABU[idust+NDUST*oind]*SCA[idust] / OPT[2*oind+1]
                //  *** re-using ds, free_path, ind0 ***
-               free_path =  GOPT(2*oind+1) ;        // sum(ABU*SCA) for the current cell
+               free_path =  GOPT(2*(long)oind+1) ;        // sum(ABU*SCA) for the current cell
                ds        =  0.99999f*Rand(&rng) ;
                for(ind0=0; ind0<NDUST; ind0++) {   // ind0 ~ dust index
-                  ds -= ABU[ind0+NDUST*oind]*SCA[ind0] / GOPT(2*oind+1) ;
+                  ds -= ABU[ind0+NDUST*((long)oind)]*SCA[ind0] / GOPT(2*(long)oind+1) ;
                   if (ds<=0.0) break ;
                }
                if (ind0>=NDUST) {
@@ -2479,7 +2481,7 @@ __kernel void SimBgSplit(const      int      PACKETS,     //  0 - number of pack
                
                
 # if (WITH_ABU>0)
-               dtau      =  ds*DENS[oind]*GOPT(2*oind+1) ;
+               dtau      =  ds*DENS[oind]*GOPT(2*(long)oind+1) ;
 # else
                dtau      =  ds*DENS[oind]*(*SCA) ;
 # endif
@@ -2492,7 +2494,7 @@ __kernel void SimBgSplit(const      int      PACKETS,     //  0 - number of pack
                
                // Not scattering, normal step forward
 # if (WITH_ABU>0)
-               tauA      =  ds*DENS[oind]*GOPT(2*oind) ;  // OPT = total cross section, sum over dust species
+               tauA      =  ds*DENS[oind]*GOPT(2*(long)oind) ;  // OPT = total cross section, sum over dust species
 # else
                tauA      =  ds*DENS[oind]*(*ABS) ;       // ABS is basically a scalar
 # endif
@@ -2763,8 +2765,8 @@ __kernel void SimBgSplit(const      int      PACKETS,     //  0 - number of pack
             scatterings++ ;
             dtau               =  free_path-tau ;
 # if (WITH_ABU>0)
-            dx                 =  dtau/(GOPT(2*oind+1)*DENS[oind]) ;
-            tauA               =  dx*DENS[oind]*GOPT(2*oind) ;
+            dx                 =  dtau/(GOPT(2*(long)oind+1)*DENS[oind]) ;
+            tauA               =  dx*DENS[oind]*GOPT(2*(long)oind) ;
 # else
             dx                 =  dtau/((*SCA)*DENS[oind]) ;  // actual step forward in GLOBAL coordinates
             tauA               =  dx*DENS[oind]*(*ABS) ;
@@ -2805,10 +2807,10 @@ __kernel void SimBgSplit(const      int      PACKETS,     //  0 - number of pack
             // We must select the scatterer -- using the properties of the cell with global index oind
             // and the relative values of ABU[oind*NDUST+idust]*SCA[idust] / OPT[2*oind+1]
             //  *** re-using ds, free_path, ind0 ***
-            dx     =  GOPT(2*oind+1) ;        // sum(ABU*SCA) for the current cell
+            dx     =  GOPT(2*(long)oind+1) ;        // sum(ABU*SCA) for the current cell
             ds     =  0.99999f*Rand(&rng) ;
             for(ind0=0; ind0<NDUST; ind0++) {   // ind0 ~ dust index
-               ds -= ABU[ind0+oind*NDUST]*SCA[ind0] / dx ;
+               ds -= ABU[ind0+((long)oind)*NDUST]*SCA[ind0] / dx ;
                if (ds<=0.0) break ;
             }
             if (ind0>=NDUST) {
@@ -3176,7 +3178,7 @@ __kernel void SimHpSplit(const      int      PACKETS,     //  0 - number of pack
             
             
 # if (WITH_ABU>0)
-            dtau      =  ds*DENS[oind]*GOPT(2*oind+1) ;
+            dtau      =  ds*DENS[oind]*GOPT(2*(long)oind+1) ;
 # else
             dtau      =  ds*DENS[oind]*(*SCA) ;
 # endif
@@ -3189,7 +3191,7 @@ __kernel void SimHpSplit(const      int      PACKETS,     //  0 - number of pack
             
             // Not scattering, normal step forward
 # if (WITH_ABU>0)
-            tauA      =  ds*DENS[oind]*GOPT(2*oind) ;  // OPT = total cross section, sum over dust species
+            tauA      =  ds*DENS[oind]*GOPT(2*(long)oind) ;  // OPT = total cross section, sum over dust species
 # else
             tauA      =  ds*DENS[oind]*(*ABS) ;       // ABS is basically a scalar
 # endif
@@ -3442,11 +3444,11 @@ __kernel void SimHpSplit(const      int      PACKETS,     //  0 - number of pack
                steps       =  0 ;    // 2020-11-14
                // if (id==2000) printf("%8d: FROM %2d %8d, PHOTONS=%.3e, BG=%.3e, NBUF=%d\n", id, level, ind, PHOTONS, BG, NBUF) ;
             }
-# endif // DO_THE_SPLITS #######################################################################################################################################################################
+# endif // DO_THE_SPLITS ##############################################################################################################################
             
             if (STOP) ind = -1 ;
             
-         } ;  // INNER WHILE  --- while ind>=0  --- loop until scattering or ray ended IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
+         } ;  // INNER WHILE  --- while ind>=0  --- loop until scattering or ray ended IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
          
          
          
@@ -3464,8 +3466,8 @@ __kernel void SimHpSplit(const      int      PACKETS,     //  0 - number of pack
          scatterings++ ;
          dtau               =  free_path-tau ;
 # if (WITH_ABU>0)
-         dx                 =  dtau/(GOPT(2*oind+1)*DENS[oind]) ;
-         tauA               =  dx*DENS[oind]*GOPT(2*oind) ;
+         dx                 =  dtau/(GOPT(2*(long)oind+1)*DENS[oind]) ;
+         tauA               =  dx*DENS[oind]*GOPT(2*(long)oind) ;
 # else
          dx                 =  dtau/((*SCA)*DENS[oind]) ;  // actual step forward in GLOBAL coordinates
          tauA               =  dx*DENS[oind]*(*ABS) ;
@@ -3506,10 +3508,10 @@ __kernel void SimHpSplit(const      int      PACKETS,     //  0 - number of pack
          // We must select the scatterer -- using the properties of the cell with global index oind
          // and the relative values of ABU[oind*NDUST+idust]*SCA[idust] / OPT[2*oind+1]
          //  *** re-using ds, free_path, ind0 ***
-         dx     =  GOPT(2*oind+1) ;        // sum(ABU*SCA) for the current cell
+         dx     =  GOPT(2*(long)oind+1) ;        // sum(ABU*SCA) for the current cell
          ds     =  0.99999f*Rand(&rng) ;
          for(ind0=0; ind0<NDUST; ind0++) {   // ind0 ~ dust index
-            ds -= ABU[ind0+oind*NDUST]*SCA[ind0] / dx ;
+            ds -= ABU[ind0+((long)oind)*NDUST]*SCA[ind0] / dx ;
             if (ds<=0.0) break ;
          }
          if (ind0>=NDUST) {
@@ -3541,7 +3543,7 @@ __kernel void SimHpSplit(const      int      PACKETS,     //  0 - number of pack
          
          
          
-      } // OUTER WHILE --- while (ind>0) -- loop until ray finished.... including all its subrays OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO
+      } // OUTER WHILE --- while (ind>0) -- loop until ray finished.... including all its subrays OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO
       
    } // for III
    

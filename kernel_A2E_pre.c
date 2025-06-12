@@ -1,7 +1,7 @@
 
-#define BOLTZMANN (1.38065e-16f)
-#define PLANCK    (6.62607e-27f)
-#define C_LIGHT   (2.99792e+10f)
+#define BOLTZMANN (1.3806488e-16f)
+#define PLANCK    (6.6260696e-27f)
+#define C_LIGHT   (2.9979246e+10f)
 // #define SCALE     (1.0e20f)  --- replaced by FACTOR 
 
 // double does not seem necessary...
@@ -28,9 +28,69 @@ float Interpolate(const int n, const __global float *x, const __global float *y,
    return w*y[b-1] + (1.0f-w)*y[b] ;
 }
 
-#else
+#endif
 
-// 2025-04-04  => loglog interpolation... no difference in the temperature distributions => keep linear
+
+
+#if 0
+#define XCOEFF  1.0e-15f
+// #define XCOEFF  1.0e-7f
+// #define XCOEFF  1.0e-20f
+
+// A =  (x1**2*x2*y3 - x1**2*x3*y2 - x1*x2**2*y3 + x1*x3**2*y2 + x2**2*x3*y1 - x2*x3**2*y1)/((x1 - x2)*(x1 - x3)*(x2 - x3))
+// B =  (x1**2*y2 - x1**2*y3 - x2**2*y1 + x2**2*y3 + x3**2*y1 - x3**2*y2)/((x1 - x2)*(x1 - x3)*(x2 - x3))
+// C =  -(x1*y2 - x1*y3 - x2*y1 + x2*y3 + x3*y1 - x3*y2)/((x1 - x2)*(x1 - x3)*(x2 - x3))
+
+// The values from this cubic interpolation are quite similar to the above linear
+//  but still completely mess up the results. For an *unknown* reason. :::  *DO NOT USE*
+
+float Interpolate(const int n, const __global float *x, const __global float *y, const float x0) {
+   // Do cubic interpolation based on (x,y) vectors and without extrapolation
+   if (x0<=x[0  ])  return y[0] ;      // no extrapolation !
+   if (x0>=x[n-1])  return y[n-1] ;
+   int a=0, c=n-1, b, i ;
+   float A, B=1.0e31f, C, q ;   // B initially the shortest x-distance
+   while((c-a)>4) {
+      b = (a+c)/2 ;
+      if (x[b]>x0) c = b ; else a = b ;
+   }
+   // Find the single closest point x[i]
+   a = max(1, a-1)   ;
+   c = min(c+2, n-2) ;
+   for(b=a; b<=c; b++) {      // used b=a+1 ... leads to seg.fault (if a==b ?)
+      A = fabs(x[b]-x0) ;
+      if (A<B) {  B = A ;  i = b ;   }
+   }
+   i  =  clamp(i, 1, n-2) ;
+   float x1=XCOEFF*x[i-1], x2=XCOEFF*x[i], x3=XCOEFF*x[i+1] ; // Inf if not rescaled
+   //   Interpolate using x[i-1] < x[i] < x[i+1],  i is known to be an inner point (i-1 and i+1 do exist)
+   q =  (x1 - x2) * (x1 - x3) * (x2 - x3)  ;   
+   A =  (((x1 * x1 * x2 * y[i+1]) - (x1 * x1 * x3 * y[i]) - (x1 * x2 * x2 * y[i+1])
+          + (x1 * x3 * x3 * y[i]) + (x2 * x2 * x3 * y[i-1]) - (x2 * x3 * x3 * y[i-1]))   /  q ) ;
+   B =  (((  x1 * x1 * y[i]) - (x1 * x1 * y[i+1]) - (x2 * x2 * y[i-1]) + (x2 * x2 * y[i+1])
+          + (x3 * x3 * y[i-1]) - (x3 * x3 * y[i]))                                       /  q ) ;
+   C =  (-(x1*y[i] - x1*y[i+1] - x2*y[i-1] + x2*y[i+1] + x3*y[i-1] - x3*y[i])            /  q ) ;   
+   // Return value by second-order interpolation
+   x1 = XCOEFF*x0 ;
+   x2 = A + B*x1 + C*x1*x1 ;   // result of cubic interpolation
+#if 1
+   q  = InterpolateL(n, x, y, x0) ;  // linear interpolation for comparison
+   if (i%99==1) printf("Linear  =  %12.4e  %12.4e  =  Cubic\n", q , x2) ;
+   if (fabs((q-x2)/q)>0.01) return q ;
+   // if (x2<=1.0e-10)   return q ;
+   // Ok, the real problem is some nan/inf in the cubic interpolation !!
+   if (isfinite(x2)) return x2 ;
+   else              return q ;
+#endif
+   return  x2 ;
+}
+
+#endif
+
+
+
+# if 0
+// 2025-04-04  => loglog interpolation... no difference compared to linear  interpolation, which remains the default
 
 float Interpolate(const int n, const __global float *x, const __global float *y, const float x0) {
    // Return value interpolated on log-log scale

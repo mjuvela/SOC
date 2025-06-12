@@ -812,7 +812,7 @@ __kernel void Mapping(
       
       
 #if (WITH_ABU>0)
-      DTAU    = sx*dens * (GOPT(2*oind)+GOPT(2*oind+1)) ;
+      DTAU    = sx*dens * (GOPT(2*(long)oind)+GOPT(2*((long)oind)+1)) ;
 #else
       DTAU    = sx*dens * (SCA+ABS) ;  // sx in global units
 #endif
@@ -938,7 +938,7 @@ __kernel void HealpixMapping(
       olevel  = level ;                    // for ROI calculation
       dx      = GetStep(&POS, &TMP, &level, &ind, DENS, OFF, PAR) ;
 #if (WITH_ABU>0)
-      DTAU    = dx*DENS[oind]*(GOPT(2*oind)+GOPT(2*oind+1)) ;
+      DTAU    = dx*DENS[oind]*(GOPT(2*((long)oind))+GOPT(2*((long)oind)+1)) ;
 #else
       DTAU    = dx*DENS[oind]*(SCA+ABS) ;  // dx in global units
 #endif
@@ -1065,7 +1065,7 @@ __kernel void PolMapping(
       olevel  = level ;
       sx      = GetStep(&POS, &TMP, &level, &ind, DENS, OFF, PAR) ; // step away from the observer
 # if (WITH_ABU>0)
-      DTAU    = sx*DENS[oind]*(GOPT(2*oind)+GOPT(2*oind+1)) ;
+      DTAU    = sx*DENS[oind]*(GOPT(2*((long)oind))+GOPT(2*((long)oind)+1)) ;
 # else
       DTAU    = sx*DENS[oind]*(SCA+ABS) ;  // sx in global units
 # endif
@@ -1236,7 +1236,7 @@ __kernel void PolMapping(
       olevel     =  level ;
       sx         =  GetStep(&POS, &TMP, &level, &ind, DENS, OFF, PAR) ;
 # if (WITH_ABU>0)
-      DTAU       =  sx*DENS[oind]*(GOPT(2*oind)+GOPT(2*oind+1)) ;
+      DTAU       =  sx*DENS[oind]*(GOPT(2*((long)oind))+GOPT(2*((long)oind)+1)) ;
 # else
       DTAU       =  sx*DENS[oind]*(SCA+ABS) ;  // sx in global units
 # endif
@@ -1316,7 +1316,7 @@ __kernel void PolMapping(
       olevel     =  level ;
       sx         =  GetStep(&POS, &TMP, &level, &ind, DENS, OFF, PAR) ;
 # if (WITH_ABU>0)
-      DTAU       =  sx*DENS[oind]*(GOPT(2*oind)+GOPT(2*oind+1)) ;
+      DTAU       =  sx*DENS[oind]*(GOPT(2*((long)oind))+GOPT(2*((long)oind)+1)) ;
 # else
       DTAU       =  sx*DENS[oind]*(SCA+ABS) ;  // sx in global units
 # endif
@@ -1489,7 +1489,7 @@ __kernel void PolMapping(
       olevel     = level ;
       sx         = GetStep(&POS, &VDIR, &level, &ind, DENS, OFF, PAR) ; // step away from observer
 # if (WITH_ABU>0)
-      DTAU       = sx*DENS[oind]*(GOPT(2*oind)+GOPT(2*oind+1)) ;
+      DTAU       = sx*DENS[oind]*(GOPT(2*((long)oind))+GOPT(2*((long)oind)+1)) ;
 # else
       DTAU       = sx*DENS[oind]*(SCA+ABS) ;  // sx in global units
 # endif
@@ -1572,7 +1572,7 @@ __kernel void PSTau(
       olevel  = level ;
       sx      = GetStep(&POS, &DIR, &level, &ind, DENS, OFF, PAR) ; // step TOWARDS the observer !!!
 #if (WITH_ABU>0)
-      DTAU    = sx*DENS[oind]*(GOPT(2*oind)+GOPT(2*oind+1)) ;
+      DTAU    = sx*DENS[oind]*(GOPT(2*((long)oind))+GOPT(2*((long)(oind))+1)) ;
 #else
       DTAU    = sx*DENS[oind]*(SCA+ABS) ;  // sx in global units
 #endif     
@@ -1663,7 +1663,7 @@ __kernel void PolMapping(
       olevel     =  level ;
       sx         =  GetStep(&POS, &TMP, &level, &ind, DENS, OFF, PAR) ;
 # if (WITH_ABU>0)
-      DTAU       =  sx*DENS[oind]*(GOPT(2*oind)+GOPT(2*oind+1)) ;
+      DTAU       =  sx*DENS[oind]*(GOPT(2*((long)oind))+GOPT(2*((long)oind)+1)) ;
 # else
       DTAU       =  sx*DENS[oind]*(SCA+ABS) ;  // sx in global units
 # endif
@@ -1896,7 +1896,7 @@ __kernel void PolMapping(
       while(ix<=sx){
              ix += dx ;
 # if (WITH_ABU>0)
-             DTAU    = dx*DENS[oind]*(GOPT(2*oind)+GOPT(2*oind+1)) ;
+             DTAU    = dx*DENS[oind]*(GOPT(2*((long)oind))+GOPT(2*((long)oind)+1)) ;
 # else
              DTAU    = dx*DENS[oind]*(C_scamean+C_absmean) ;  // sx in global units
 # endif
