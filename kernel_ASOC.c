@@ -60,7 +60,7 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
    // => each work item does precisely BATCH packages
    
    
-   // printf("SimRAM_PB\n") ;
+   // if (id==0) printf("SimRAM_PB\n") ;
    
    int    oind=0, level=0, scatterings, steps, SIDE ;
    float  ds, free_path, tau, dtau, delta, tauA, dx, phi, cos_theta, sin_theta ;
@@ -206,7 +206,11 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
          DIR.x     =  sin_theta*cos(phi) ;   
          DIR.y     =  sin_theta*sin(phi) ;
          DIR.z     =  cos_theta ;
-         level0    =  III % NO_PS ;              // level0 here the index of the point sources !!
+#if 0
+         level0    =  III % NO_PS ;       // level0 here the index of the point sources !!
+#else  // 2025-10-04 does this reduce atomic time when GLOBAL>>1 and NO_PS>>1?
+         level0    =  (III+id) % NO_PS ;
+#endif
          PHOTONS   =  PS[level0] ;
          POS.x     =  PSPOS[level0].x ;   POS.y = PSPOS[level0].y ;   POS.z = PSPOS[level0].z ;
          // Host should already flag the external point sources so that this could be skipped?
@@ -1295,6 +1299,8 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
    int ROI_NZ = (ROI[5]-ROI[4]+1)*ROI_STEP ;
 # endif
    
+
+
    
    while(1) {
       
@@ -1321,14 +1327,21 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
       // ICELL = id+()*GLOBAL < CELLS
       // IRAY  = 0...         < batch = [BATCH | EMWEI]
       if (IRAY>=batch) {    // move to next cell (on first call 0>=-1)
-         // if (id==0) printf("from %6d ", ICELL) ;
+
+         //  if (id==0) printf("from %6d ", ICELL) ;
+         
          IRAY  = 0 ;
          PWEI  = 1.0f ;     // additional weighting to photon numbers
          while(1) {
             ICELL += GLOBAL ;          // initially ICELL==id-GLOBAL
             if (ICELL>=CELLS) {
+               // printf("%d / %d exits\n", id, GLOBAL) ;
                return ; // no more cells for this work item
-            }
+            }            
+            // Severe load-balancing issues on GPU, since work load depends on
+            // the sum of EMWEI in a fixed subset of cells, step GLOBAL apart.
+            // On the plus side every cell will emit exactly the number of of packages
+            // that were assumed when calculating the package weights.
 #  if (USE_EMWEIGHT>0)
             PWEI  = EMWEI[ICELL] ;     // float ~ number of packages
             // 2019-02-19: WITH_ABU => DENS is actually absorption cross section
@@ -1362,6 +1375,8 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
       IRAY   +=  1 ;     // this many rays created for the current cell
 # endif // ===========================================================================
       
+
+      // if (id==0) printf("ID=0  PWEI %12.4e\n", PWEI) ;
       
       
       for(level=0; level<LEVELS-1; level++) { // find the level of this cell
@@ -1677,18 +1692,22 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
          
          
       } // while (ind>0) -- loop until the end of ray before checking if new are required
-      
-      
+
    } // while (1) -- loop until all packages simulated
-   
+
 }
 
 
+#endif  // if USE_EMWEIGHT<2
 
 
 
 
-#else  // USE_EMWEIGHT == 2
+
+
+
+
+#if (USE_EMWEIGHT==2)
 
 
 
@@ -1723,7 +1742,7 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
                         __global   float   *INTX,    // 22 - net intensity vector
                         __global   float   *INTY,    // 23 - net intensity vector
                         __global   float   *INTZ,    // 24 - net intensity vector
-                        __global   int     *EMINDEX, // 25 - dummy !!
+                        __global   int     *EMINDEX, // 25 - indices of emitting cells
                         __global   OTYPE   *OPT,     // 26 - ABS + SCA vectors when abundances are not constant
                         __global   float   *ABU
 # if (WITH_ROI_SAVE)
@@ -1771,7 +1790,7 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
    // Loop over cells
    while (1) {
       
-      // if (id==4100)  printf("IND=%d   < CELLS=%d\n", IND, CELLS) ;
+      // if (id==0)  printf("IND=%d   < CELLS=%d\n", IND, CELLS) ;
       
       // find next cell that is emitting something
       while (1) {
@@ -1785,15 +1804,12 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
          }
       }
       
-      // if (ICELL==3789) printf(" <<<<<<  3789  >>>>>> %d\n", id) ;
-      
-      
       // !!! iter over EMWEI2_STEP photon packages !!!
-      for(int iter=0; iter<100; iter++) { // three packages from this cell
+      for(int iter=0; iter<EMWEI2_STEP; iter++) { // EMWEI2_STEP packages from this cell
          
          // if (id==4100) printf("   ----  %5d  %8d  %d/3\n", id, IND, 1+iter) ;
                     
-         ind = ICELL ;
+         ind = ICELL ;   // index of the emitting cell
          
          // generate new ray >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
          
@@ -1839,8 +1855,8 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
          DIR         =  normalize(DIR) ;
          scatterings =  0 ;
          tau         =  0.0f ;         
-         
-         
+              
+      
 # if (STEP_WEIGHT<=0)
          // normal, unweighted case
          free_path  = -log(Rand(&rng)) ;
@@ -2106,7 +2122,414 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
 }
 
 
-#endif
+#endif  // USE_EMWEIGHT==2
+
+
+
+
+
+
+
+
+
+
+
+
+#if (USE_EMWEIGHT==3)
+
+
+// In this version evert worker generates independently packages
+// from cells selected from P-1(u), cell_index  = EMINDEX[rand()*CELLS]
+// The relative weight of each package is EMWEI[cell_index]
+         
+
+__kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC = 0/1/2 -- dummy !!!
+                        const      int      PACKETS, //  1 - number of packets
+                        const      int      BATCH,   //  2 - packages per work item
+                        const      float    SEED,    //  3
+                        __global   float   *ABS,     //  4
+                        __global   float   *SCA,     //  5
+                        const      float    TW,      //  6 - weight of current frequency in integral
+                        constant   int     *LCELLS,  //  7 - number of cells on each level
+                        constant   int     *OFF,     //  8 - index of first cell on each level
+                        __global   int     *PAR,     //  9 - index of parent cell        [CELLS]
+                        __global   float   *DENS,    // 10 - density and hierarchy       [CELLS]
+                        __global   float   *EMIT,    // 11 - emission from cells         [CELLS]
+                        __global   float   *TABS,    // 12 - buffer for absorptions      [CELLS]
+                        constant   float   *DSC,     // 13 - BINS entries
+                        constant   float   *CSC,     // 14 - cumulative scattering function
+                        __global   float   *XAB,     // 15 - reabsorbed energy per cell  [CELLS]
+                        __global   float   *EMWEI,   // 16 - number of packages per cell
+                        __global   float   *INT,     // 17 - net intensity
+                        __global   float   *INTX,    // 18 - net intensity vector
+                        __global   float   *INTY,    // 19 - net intensity vector
+                        __global   float   *INTZ,    // 20 - net intensity vector
+                        __global   int     *EMINDEX, // 21 - indices of emitting cells
+                        __global   OTYPE   *OPT,     // 22 - ABS + SCA vectors when abundances are not constant
+                        __global   float   *ABU      // 23 - ABU
+# if (WITH_ROI_SAVE)
+                        // defs include ROI_STEP
+                        ,__global  int     *ROI,     // 24 - [6], limits of the ROI
+                        ,__global  float   *ROI_SAVE // 25 - array to store incoming photons
+# endif
+                       ) 
+{
+   // This routine is simulating the radiation field in order to determine the
+   // absorbed energy in each cell.
+   const int id     = get_global_id(0) ;
+   if (id>=CELLS) return ;
+   const int GLOBAL = get_global_size(0) ;
+   
+   int    oind=0, level=0, scatterings  ;
+   int    level0, ind0 ;
+# if (WITH_ALI>0)
+   int    e_index ; // for photon packages sent from a cell, the index of emitting cell
+# endif
+   float  ds, free_path, tau, dtau, delta, tauA, dx, phi, cos_theta, sin_theta ;
+   float3 DIR=0.0f, POS, POS0 ; 
+   float  PHOTONS, X0, Y0, Z0, PWEI=1.0f ;
+   
+   mwc64x_state_t rng;
+   // Assume that 2^38 = 2.7e11 random numbers per worker is sufficient
+   // For each NITER, host will also give a new seed [0,1] that is multiplied by 2^32 = 4.3e9
+   // The generator has a period of 2^63=9e18, which is 33e6 times 2^38... 33e6 >> workers
+   ulong samplesPerStream = 274877906944L ;  // 2^38
+   MWC64X_SeedStreams(&rng, (unsigned long)(fmod(SEED*7.0f*PI,1.0f)*4294967296L), samplesPerStream);
+   
+   
+   int IND, ind ;   // index to EMINDEX
+   
+# if (WITH_ROI_SAVE)
+   int ROI_NX = (ROI[1]-ROI[0]+1)*ROI_STEP ;
+   int ROI_NY = (ROI[3]-ROI[2]+1)*ROI_STEP ;
+   int ROI_NZ = (ROI[5]-ROI[4]+1)*ROI_STEP ;
+   float3 RPOS ;
+   int roi, oroi, ii, jj ;
+   roi = oroi = -1 ;
+# endif
+
+   // if (id==0) printf("ID=0, BATCH=%d\n", BATCH) ;   
+   
+   // Each wi sends BATCH photon packages from random locations over the whole model
+   for(int ibatch=0; ibatch<BATCH; ibatch++) {
+      
+      ind   = EMINDEX[clamp((int)(round(Rand(&rng)*CELLS)), 0, CELLS-1)] ;
+      PWEI  = EMWEI[ind] ;
+
+      // if (id==0) printf("ID=0  PWEI %12.4e\n", PWEI) ;
+      
+      
+# if (WITH_ALI>0)
+      e_index = -1 ;
+# endif
+      
+      for(level=0; level<LEVELS-1; level++) { // find the level of this cell
+            ind -= LCELLS[level] ;
+            if (ind<0) {              // ok, current cell was on level "level"
+               ind += LCELLS[level] ; // index within "level"
+               break ;
+            }
+         }
+         // level=0 => coordinates are global coordinates, otherwise of the current octet
+         if (level==0) {
+            X0  = (ind % NX) ;
+            Y0  = ((ind/NX) % NY) ;
+            Z0  = (ind/(NX*NY)) ;
+         } else {
+            int sid = ind % 8 ;               // which cell in the octet
+            X0  = (sid%2) ;                   // lower border in local coordinates
+            Y0  = ((sid%4)>1) ? 1.0f : 0.0f ; // fixed (?) 2016-06-29
+            Z0  = (sid/4) ;
+         }
+         PHOTONS    =  EMIT[OFF[level]+ind] * PWEI ;
+         POS.x      =  X0 + Rand(&rng) ;  POS.y = Y0 + Rand(&rng) ;  POS.z = Z0 + Rand(&rng) ;
+         // Direction
+         phi        =  TWOPI*Rand(&rng) ;
+         cos_theta  =  0.999997f-1.999995f*Rand(&rng) ;
+         sin_theta  =  sqrt(1.0f-cos_theta*cos_theta) ;
+         DIR.x      =  sin_theta*cos(phi) ;   
+         DIR.y      =  sin_theta*sin(phi) ;
+         DIR.z      =  cos_theta ;
+# if (WITH_ALI>0)
+         e_index    =  OFF[level]+ind ;  // index of the emitting cell
+# endif
+                  
+         if (fabs(DIR.x)<DEPS) DIR.x = DEPS ;
+         if (fabs(DIR.y)<DEPS) DIR.y = DEPS ;
+         if (fabs(DIR.z)<DEPS) DIR.z = DEPS ; 
+         DIR         =  normalize(DIR) ;
+         scatterings =  0 ;
+         tau         =  0.0f ;         
+                  
+# if (STEP_WEIGHT<=0)
+         // normal, unweighted case
+         free_path  = -log(Rand(&rng)) ;
+# endif
+# if (STEP_WEIGHT==1)   
+         // Single exponential, free path  *=  1/SW_A,   use 0<SW_A<1
+         //   p   =  A*exp(-A*tau)
+         //   tau = -log(u/A)/A
+         //   w   =  exp(A*tau-tau)/A
+         //  SW_A = multiplier for the argument of the exponential function
+         free_path   = -log(Rand(&rng)) / SW_A ;
+         PHOTONS    *=  exp(SW_A*free_path-free_path) / SW_A ;
+# endif
+# if (STEP_WEIGHT==2)
+         // Two exponentials, alpha and 2*alpha, e.g., alpha=0.5 == exp(-tau) & exp(-0.5*tau)
+         //   p    =  0.5*a*exp(-a*t) + a*exp(-2*a*t)
+         //   tau  =  -log(-0.5+sqrt(0.25+2*u)) / a
+         //   w    =  1 / (  0.5*a*exp((1-a)*t) + a*exp((1-2*a)*t) )
+         // SW_A = Weight of modified exponential term
+         // SW_B = Multiplier for the argument of the exponential function
+         free_path =      -log( 
+                               (-SW_B+sqrt(SW_B*SW_B+4.0f*Rand(&rng)*(1.0f-SW_B))) / 
+                               (2.0f-2.0f*SW_B) 
+                              ) / SW_A ;
+         PHOTONS *= 1.0f/(SW_A*SW_B*exp((1.0f-SW_A)*free_path)+2.0f*SW_A*(1.0f-SW_B)*exp((1.0f-2.0f*SW_A)*free_path)) ;
+# endif
+         
+         
+# if (WITH_ROI_SAVE)
+         roi, oroi = InRoi(level, ind, ROI, PAR, OFF) ; // should start outside ROI
+# endif         
+         
+         while(ind>=0) {  // loop until this ray is really finished
+            
+            
+            while(ind>=0) {    // loop until scattering
+# if (WITH_ROI_SAVE)
+               oroi      =  roi ;             // status before step, inside or outside roi
+# endif
+               oind      =  OFF[level]+ind ;  // global index at the beginning of the step
+               ind0      =  ind ;             // indices at the beginning of the step
+               level0    =  level ;
+               POS0      =  POS ;   // because GetStep does coordinate transformations...
+               ds        =  GetStep(&POS, &DIR, &level, &ind, DENS, OFF, PAR) ; // POS, level, ind updated !!
+# if (WITH_ABU>0)
+               dtau      =  ds*DENS[oind]*GOPT(2*(long)oind+1) ;
+# else
+               dtau      =  ds*DENS[oind]*(*SCA) ;
+# endif
+               if (free_path<(tau+dtau)) {
+                  ind = ind0 ;       // what if we scatter on step ending outside the cloud?
+                  break ;            // scatter before ds
+               }
+# if (WITH_ABU>0)
+               tauA      =  ds*DENS[oind]*GOPT(2*(long)oind) ;
+# else
+               tauA      =  ds*DENS[oind]*(*ABS) ;  // single dust or constant abundance = single float
+# endif
+               
+# if 1
+               delta =  (tauA>TAULIM) ? (PHOTONS*(1.0f-exp(-tauA))) : (PHOTONS*tauA*(1.0f-0.5f*tauA)) ;
+# else
+               if (tauA>TAULIM) {
+                  delta  =  PHOTONS*(1.0f-exp(-tauA)) ;
+               } else {
+                  delta  =  PHOTONS*tauA*(1.0f-0.5f*tauA) ;
+               }
+# endif
+               
+# if (WITH_ALI==1)  // with ALI
+               if (oind==e_index) {  // absorptions in emitting cell
+                  atomicAdd_g_f(&(XAB[oind]), delta*TW) ;
+               } else {              // absorptions of photons from elsewhere
+                  atomicAdd_g_f(&(TABS[oind]), delta*TW*ADHOC) ;
+               }
+# else              // no ALI
+               atomicAdd_g_f(&(TABS[oind]), delta*TW*ADHOC) ;
+               // if (oind==1201) printf("%12.4e to %6d si %12.4e\n", delta*TW*ADHOC, oind, TABS[oind]) ;
+# endif
+# if ((SAVE_INTENSITY==1)||(SAVE_INTENSITY==2)||(NOABSORBED==0))  // Cannot use TABS because that is cumulative over frequency...
+               atomicAdd_g_f(&(INT[oind]),  delta) ;
+# endif
+# if (SAVE_INTENSITY==2)  // Save vector components of the net intensity
+               // Cannot use TABS because that is cumulative over frequency...
+               atomicAdd_g_f(&(INTX[oind]), delta*DIR.x) ;
+               atomicAdd_g_f(&(INTY[oind]), delta*DIR.y) ;
+               atomicAdd_g_f(&(INTZ[oind]), delta*DIR.z) ;
+# endif
+               PHOTONS   *=  exp(-tauA) ;
+               tau       +=  dtau ;
+               
+# if (WITH_ROI_SAVE)
+               // Only here, at the end of a full step, check if we moved into ROI
+               roi = InRoi(level, ind, ROI, PAR, OFF) ;
+               if ((roi>=0)&&(oroi<0)) {      // moved into ROI
+                  RPOS = POS ;     RootPos(&RPOS, level, ind, OFF, PAR) ;  // get the position in root grid coordinates
+                  // Add current package to ROI_SAVE --- reuse roi for the index of the surface element
+                  if ((RPOS.x<(ROI[0]+1.0e-3f))||(RPOS.x>(ROI[1]+0.999f))) {  // X border
+                     ii = clamp((int)floor((RPOS.y-ROI[2])*ROI_STEP), 0, ROI_NY-1) ;              // Y 
+                     jj = clamp((int)floor((RPOS.z-ROI[4])*ROI_STEP), 0, ROI_NZ-1) ;              // Z 
+                     ii = ii + ROI_NY*jj ;
+                  }
+                  if ((RPOS.y<(ROI[2]+1.0e-3f))||(RPOS.y>(ROI[3]+0.999f))) {  // Y border
+                     ii = clamp((int)floor((RPOS.x-ROI[0])*ROI_STEP), 0, ROI_NX-1) ;              // X 
+                     jj = clamp((int)floor((RPOS.z-ROI[4])*ROI_STEP), 0, ROI_NZ-1) ;              // Z 
+                     ii = ROI_NY*ROI_NZ +  ii + ROI_NX*jj ;
+                  }
+                  if ((RPOS.z<(ROI[4]+1.0e-3f))||(RPOS.z>(ROI[5]+0.999f))) {  // Z border
+                     ii = clamp((int)floor((RPOS.x-ROI[0])*ROI_STEP), 0, ROI_NX-1) ;              // X 
+                     jj = clamp((int)floor((RPOS.y-ROI[2])*ROI_STEP), 0, ROI_NY-1) ;              // Y 
+                     ii = ROI_NY*ROI_NZ +  ROI_NX*ROI_NZ +  ii + ROI_NX*jj ;                  
+                  }
+                  cos_theta =  acos(DIR.z) ;                                  // this is actually just theta
+                  phi       =  atan2(DIR.y, DIR.x) ;
+                  jj        =  Angles2PixelRing(ROI_NSIDE, phi, cos_theta) ;                    // healpix pixel
+                  ii        =  clamp(ii, 0, ROI_NX*ROI_NY + ROI_NY*ROI_NZ + ROI_NZ*ROI_NX-1) ;  // surface element
+                  jj        =  clamp(jj, 0, 12*ROI_NSIDE*ROI_NSIDE-1) ;
+                  atomicAdd_g_f(&(ROI_SAVE[ii*12*ROI_NSIDE*ROI_NSIDE + jj]), PHOTONS) ;
+               } // if moved to roi
+# endif
+               
+# if (MIRROR>0)
+               if (ind<0) Mirror(&POS, &DIR, &level, &ind, DENS, OFF) ;
+# endif
+               
+            } ;
+            
+            // package has scattered or exited the volume
+      
+            
+            if (ind>=0) {  // it was a scattering
+               scatterings++ ;
+# if 1 
+               if (scatterings>20) {
+                  ind = -1 ;  continue  ; // go and get next ray
+               }
+# else
+               // Russian roulette to remove packages
+               // perhaps we skip this in for CLPAC -- emission is always at long wavelengths
+               if (scatterings>15) {
+                  if (Rand(&rng)<0.25f) {   // one in four terminated
+                     ind = -1 ; continue ;
+                  } else {                  // ther rest *= 4/3
+                     PHOTONS *= 1.3333333f ;
+                  }
+               }
+# endif
+               dtau               =  free_path-tau ;
+# if (WITH_ABU>0)
+               dx                 =  dtau/(GOPT(2*(long)oind+1)*DENS[oind]) ;  // actual step forward in GLOBAL coordinates
+               tauA               =  dx*DENS[oind]*GOPT(2*(long)oind) ;
+# else
+               dx                 =  dtau/((*SCA)*DENS[oind]) ;  // actual step forward in GLOBAL coordinates
+               tauA               =  dx*DENS[oind]*(*ABS) ;
+# endif
+               
+               
+# if 1
+               delta =  (tauA>TAULIM) ? (PHOTONS*(1.0f-exp(-tauA))) : (PHOTONS*tauA*(1.0f-0.5f*tauA)) ;
+# else
+               if (tauA>TAULIM) {
+                  delta           =  PHOTONS*(1.0f-exp(-tauA)) ;
+               } else {
+                  delta           =  PHOTONS*tauA*(1.0f-0.5f*tauA) ;
+               }
+# endif
+               
+               
+               
+# if (WITH_ALI==1)   // with ALI
+               if (oind==e_index) { // absorptions in emitting cell
+                  atomicAdd_g_f(&(XAB[oind]), delta*TW) ;
+               } else {             // absorptions of photons from elsewhere
+                  atomicAdd_g_f(&(TABS[oind]), delta*TW*ADHOC) ;
+               }
+# else               // no ALI
+               atomicAdd_g_f(&(TABS[oind]), delta*TW*ADHOC) ;
+# endif
+# if ((SAVE_INTENSITY==1)||(SAVE_INTENSITY==2)||(NOABSORBED==0))  // Cannot use TABS because that is cumulative over frequency...
+               atomicAdd_g_f(&(INT[oind]),  delta) ;
+# endif
+# if (SAVE_INTENSITY==2)  // Save vector components of the net intensity
+               // Cannot use TABS because that is cumulative over frequency...
+               atomicAdd_g_f(&(INTX[oind]), delta*DIR.x) ;
+               atomicAdd_g_f(&(INTY[oind]), delta*DIR.y) ;
+               atomicAdd_g_f(&(INTZ[oind]), delta*DIR.z) ;
+# endif
+               dx             =  ldexp(dx, level0) ;
+               dx             =  max(0.0f, dx-2.0f*PEPS) ; // must remain in cell (level0, ind0)
+               POS            =  POS0 + dx*DIR ;  // location of scattering -- coordinates of current level
+               PHOTONS       *=  exp(-tauA) ;
+               
+# if (STEP_WEIGHT<=0)
+               // normal, unweighted case
+               free_path  = -log(Rand(&rng)) ;
+# endif
+# if (STEP_WEIGHT==1)   
+               // Single exponential, free path  *=  1/SW_A,   use 0<SW_A<1
+               //   p   =  A*exp(-A*tau)
+               //   tau = -log(u/A)/A
+               //   w   =  exp(A*tau-tau)/A
+               //  SW_A = multiplier for the argument of the exponential function
+               free_path   = -log(Rand(&rng)) / SW_A ;
+               PHOTONS    *=  exp(SW_A*free_path-free_path) / SW_A ;
+# endif
+# if (STEP_WEIGHT==2)
+               // Two exponentials, B and 2*B, e.g., B=0.5 == exp(-tau) & exp(-0.5*tau)
+               //   p    =  0.5*a*exp(-a*t) + a*exp(-2*a*t)
+               //   tau  =  -log(-0.5+sqrt(0.25+2*u)) / a
+               //   w    =  1 / (  0.5*a*exp((1-a)*t) + a*exp((1-2*a)*t) )
+               // SW_A = Weight of modified exponential term
+               // SW_B = Multiplier for the argument of the exponential function
+               free_path =      -log( 
+                                     (-SW_B+sqrt(SW_B*SW_B+4.0f*Rand(&rng)*(1.0f-SW_B))) / 
+                                     (2.0f-2.0f*SW_B) 
+                                    ) / SW_A ;
+               PHOTONS  *= 1.0f /     ( SW_A*SW_B*exp((1.0f-SW_A)*free_path) +  2.0f*SW_A*(1.0f-SW_B)*exp((1.0f-2.0f*SW_A)*free_path) ) ;
+# endif
+               // return to original indices
+               ind            =  ind0 ;           // cell has not changed !?
+               level          =  level0 ;         // (ind, level) at the beginning of the step = at the end
+               
+# if (DIR_WEIGHT>0)
+               POS0 = DIR ;  // old direction
+               WScatter(&DIR, CSC, &rng, &pweight) ;
+               // Yet another weighting = ratio of scattering functions
+               // ... for the scattering angle of the photon package (not peeloff direction!!)
+               tau           =  DIR.x*POS0.x+DIR.y*POS0.y+DIR.z*POS0.z ;  // ct=="tau" reused         
+               pind          =  clamp((int)(BINS*(1.0f+tau)*0.5f), 0, BINS-1) ;
+               PHOTONS      *=  DSC[pind] / pweight ;
+# else
+#  if (WITH_MSF==0) // ----------------------------------------------------------------------------------------------
+               // Basic situation, only single scattering function in use
+               Scatter(&DIR, CSC, &rng) ;   // new direction
+#  else // ----------------------------------------------------------------------------------------------------------
+               // We must select the scatterer -- using the properties of the cell with global index oind
+               // and the relative values of ABU[idust+NDUST*oind]*SCA[idust] / OPT[2*oind+1]
+               //  *** re-using ds, free_path, ind0 ***
+               free_path =  GOPT(2*(long)oind+1) ;        // sum(ABU*SCA) for the current cell
+               ds        =  0.99999f*Rand(&rng) ;
+               for(ind0=0; ind0<NDUST; ind0++) {   // ind0 ~ dust index
+                  ds -= ABU[ind0+NDUST*((long)oind)]*SCA[ind0] / GOPT(2*(long)oind+1) ;
+                  if (ds<=0.0) break ;
+               }
+               if (ind0>=NDUST) {
+                  // printf("(d) ?????\n") ;
+                  ind0 = NDUST-1 ;
+               }
+               Scatter(&DIR, &CSC[ind0*BINS], &rng) ; // use the scattering function of the ind0:th dust species
+#  endif // --------------------------------------------------------------------------------------------------------
+# endif
+               tau = 0.0f ;
+            } // if (ind>=0) --- end of scattering
+            
+            
+         } // while (ind>0) -- loop until the end of ray before checking if new are required
+         
+         
+         
+   }  // while(1) --- loop to next emitting cell
+   
+}
+
+
+#endif  // USE_EMWEIGHT ==3
+ 
+
+
+
 
 
 

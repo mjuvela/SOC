@@ -882,6 +882,7 @@ def mmap_emitted(USER, CELLS, LEVELS, LCELLS, REMIT_NFREQ, OFF, DENS):
     """
     EMITTED = []
     if (len(USER.file_emitted)>0): # prepare file to store emitted photons
+        # print("==> mmap_emitted(%s),  REMIT_NFREQ %d" % (USER.file_emitted, REMIT_NFREQ))
         ok         = 1
         old_levels = 0
         old_cells  = 0

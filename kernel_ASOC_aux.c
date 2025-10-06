@@ -796,13 +796,16 @@ __kernel void Emission(const float     FREQ,
                        __global float *T,
                        __global float *EMIT) {
    // Calculate emission based on temperature (non-equilibrium grains)
+   // FACTOR = 1.0e20
    int id = get_global_id(0) ;
    int gs = get_global_size(0) ;
    if (id>=CELLS) return ;
    for(int i=id; i<CELLS; i+=gs) {
       // 1.0e20*4.0*PI/(PLANCK*FFREQ[a:b])) * FABS[a:b]*Planck(FFREQ[a:b], TNEW[icell])/(USER.GL*PARSEC)
       // 1e20 * 4 *pi / (h*f) = 1.8965044e+47
-      EMIT[i] = (2.79639459e-20f*FACTOR) * FABS * (FREQ*FREQ/(exp(4.7995074e-11f*FREQ/T[i])-1.0f)) / LENGTH ;
+      // 8*pi/C_LIGHT^2  =  2.796394593691455e-20
+      //            h/k  =  4.7992433484894926e-11
+      EMIT[i] = (2.79639459e-20f*FACTOR) * FABS * (FREQ*FREQ/LENGTH) / (exp(4.79924335e-11*FREQ/T[i])-1.0f) ;
    }
 }
 

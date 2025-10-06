@@ -76,7 +76,7 @@ The same with variable abundances:
 
 t0000 = time.time()
 
-EMWEI2_STEP = 100
+EMWEI2_STEP = 10
 # ADHOC       = 1.0e-10
 ADHOC       = 1.0
 
@@ -346,6 +346,7 @@ ARGS = '-D NX=%d -D NY=%d -D NZ=%d -D BINS=%d -D WITH_ALI=%d -D PS_METHOD=%d -D 
 -D ROI_STEP=%d -D ROI_NSIDE=%d -D WITH_ROI_LOAD=%d -D WITH_ROI_SAVE=%d \
 -D AXY=%.5ff -D AXZ=%.5ff -D AYZ=%.5ff -D LEVELS=%d -D LENGTH=%.5ef -I "%s" -D DO_SPLIT=%d \
 -D POLSTAT=%d -D SW_A=%.3ef -D SW_B=%.3ef -D STEP_WEIGHT=%d -D DIR_WEIGHT=%d -D DW_A=%.3ef \
+-D EMWEI2_STEP=%d \
 -D LEVEL_THRESHOLD=%d -D POLRED=%d -D p00=%.4ff -D MINLOS=%.3ef -D MAXLOS=%.3ef \
 -D FFS=%d -D NODIR=%d -D USE_EMWEIGHT=%d -D SAVE_INTENSITY=%d -D NOABSORBED=%d -D INTERPOLATE=%d \
 -D ADHOC=%.5ef %s -D HPBG_WEIGHTED=%d -D WITH_MSF=%d -D NDUST=%d -D OPT_IS_HALF=%d -D POL_RHO_WEIGHT=%d \
@@ -355,7 +356,7 @@ ARGS = '-D NX=%d -D NY=%d -D NZ=%d -D BINS=%d -D WITH_ALI=%d -D PS_METHOD=%d -D 
    USER.ROI_STEP, USER.ROI_NSIDE, USER.WITH_ROI_LOAD, USER.WITH_ROI_SAVE,
    USER.AXY, USER.AXZ, USER.AYZ, LEVELS, USER.GL*PARSEC, INSTALL_DIR, USER.DO_SPLIT,
    USER.POLSTAT, int(USER.STEP_WEIGHT[0]), USER.STEP_WEIGHT[1], int(USER.STEP_WEIGHT[2]),
-   int(USER.DIR_WEIGHT[0]), USER.DIR_WEIGHT[1],
+   int(USER.DIR_WEIGHT[0]), USER.DIR_WEIGHT[1], int(EMWEI2_STEP),
    USER.LEVEL_THRESHOLD, len(USER.file_polred)>0, USER.p0, USER.MINLOS, USER.MAXLOS,
    USER.FFS, NODIR, USER.USE_EMWEIGHT, USER.SAVE_INTENSITY,  USER.NOABSORBED, USER.INTERPOLATE, 
    ADHOC, USER.kernel_defs, USER.HPBG_WEIGHTED, WITH_MSF, NDUST, USER.OPT_IS_HALF, USER.POL_RHO_WEIGHT,
@@ -466,7 +467,7 @@ for ID in range(DEVICES):
         XAB_buf.append(    cl.Buffer(context[ID], mf.READ_WRITE, 4*CELLS))            # max 8589934588 bytes
     else:
         XAB_buf.append(    cl.Buffer(context[ID], mf.READ_WRITE, 4))  # dummy
-    if (USER.USE_EMWEIGHT==2):
+    if (USER.USE_EMWEIGHT in [2,3]):
         EMINDEX_buf.append( cl.Buffer(context[ID], mf.READ_ONLY, 4*CELLS))            # max 8589934588 bytes
     else:
         EMINDEX_buf.append( cl.Buffer(context[ID], mf.READ_ONLY, 4))  # dummy
@@ -513,6 +514,8 @@ for ID in range(DEVICES):
         # now we need to allocate BUFFER only based on work items (not surface elements)
         BUFFER_buf.append(   cl.Buffer(context[ID], mf.READ_WRITE,  4*GLOBAL_SPLIT*12*MAX_SPLIT)  )
 
+
+        
     
 # for split packages
 # SID_NUMBERS is the list of four SID numbers for each of the six sides (X low & hi, Y low & hi, Z low & hi)
@@ -549,7 +552,7 @@ if (VERBOSE): print('EMWEI %d, SAVE_INTENSITY %d' % (USER.USE_EMWEIGHT, USER.SAV
 EMWEI, EMWEI_buf = [], []
 if (USER.USE_EMWEIGHT>0):
     pac       = max([CLPAC, DFPAC])                     #  equal or CLPAC=0 and DFPAC>0
-    EMWEI     = ones(CELLS, float32)  * (pac/CELLS)     # could be ushort, 0-65k packages per cell?
+    EMWEI     = asarray(ones(CELLS, float32)*(pac/CELLS), float32)     # could be ushort, 0-65k packages per cell?
     EMWEI_buf.append( cl.Buffer(context[ID], mf.READ_ONLY, 4*CELLS) )  # max 2^31-1 = 2147483647 cells *  4B
 else:    
     EMWEI_buf.append( cl.Buffer(context[ID], mf.READ_ONLY, 4) )  # dummy buffer
@@ -640,9 +643,9 @@ if (not(USER.NOABSORBED)): # we store absorptions at all frequencies, use mmap a
         
     
     
-Emin, kE, TTT, TTT_buf = None, None, None, None
+Emin, kE, TTT, TTT_buf, kernel_T = None, None, None, None, None
 NE = 30000  # number of energies when interpolating Tdust for non-stochastic grains
-if (not(USER.NOSOLVE)):  # Calculate mapping T <-> E
+if ((not(USER.NOSOLVE))&('CLT' in USER.KEYS)):  # Calculate mapping T <-> E
     # 2018-12-08 -- at the moment require that if we are solving dust emission
     #               inside SOC, we are dealing with non-stochastically heated grains
     #               and therefore there must be only a single dust component
@@ -687,7 +690,30 @@ if (not(USER.NOSOLVE)):  # Calculate mapping T <-> E
         print("Emin= %.3e, Emax= %.3e, kE= %.6f,  NE= %d, kE**(NE-1)= %.3e" % (Emin, Emax, kE, NE, kE**(NE-1.0)))
         print("TTT %.3e - %.3e" % (TTT[0], TTT[NE-1]))
     ## sys.exit()
+    kernel_T = program[0].EqTemperature
+    # EMIT + DENS  ->  TABS
+    #                               level     adhoc       kE          Emin        NE        OFF    LCELLS  TTT    DENS   EMIT   TNEW
+    kernel_T.set_scalar_arg_dtypes([np.int32, np.float32, np.float32, np.float32, np.int32, None,  None,   None,  None,  None,  None ])
+    TTT_buf  = cl.Buffer(context[0], mf.READ_ONLY,  TTT.nbytes)
+    cl.enqueue_copy(commands[0], TTT_buf, TTT)
 
+
+# Prepare for emission calculation on device
+kernel_emission, kernel_emission2 = None, None
+E_NFREQ, E_BATCH, E_FREQ_buf, E_ABS_buf, E_EMIT_buf = None, None, None, None, None
+if ((not(USER.NOSOLVE))&('CLE' in USER.KEYS)):
+    kernel_emission = program[0].Emission
+    kernel_emission.set_scalar_arg_dtypes([np.float32, np.float32, None, None, None])
+    if ('EBATCH' in USER.KEYS):
+        E_NFREQ       =  REMIT_I2+1 - REMIT_I1                #  only this many in EMITTED
+        E_BATCH       =  [32768, 65536, 131072, 262144][1]
+        E_FREQ_buf    =  cl.Buffer(context[0], mf.READ_ONLY,  4*E_NFREQ)
+        E_ABS_buf     =  cl.Buffer(context[0], mf.READ_ONLY,  4*E_NFREQ)
+        E_EMIT_buf    =  cl.Buffer(context[0], mf.WRITE_ONLY, 4*E_BATCH*E_NFREQ)  # E_EMIT[E_BATCH, nfreq]
+        kernel_emission2 = program[0].Emission2
+        kernel_emission2.set_scalar_arg_dtypes([np.int32, np.int32, np.int32, None,None,None,None,None])
+
+    
     
 """
 This script makes separete kernel calls for PSPAC, BGPAC, diffuse sources (CLPAC) and
@@ -757,8 +783,6 @@ if ((USER.LOAD_TEMPERATURE)&(USER.ITERATIONS<1)):
         # use Emission() kernel routine
         # print("TNEW", percentile(TNEW, (0, 10, 50, 90, 100)))
         if (VERBOSE): print("temperature_to_emitted --- in kernel")
-        kernel_emission = program[0].Emission
-        kernel_emission.set_scalar_arg_dtypes([np.float32, np.float32, None, None, None])
         cl.enqueue_copy(commands[0], EMIT_buf[0], TNEW)
         a, b = REMIT_I1, REMIT_I2+1
         for ifreq in range(a, b):
@@ -1562,7 +1586,7 @@ if (VERBOSE):
 # Keep updating the escape probability on each iteration, because temperatures change and
 # (with reference field) to make the estimates more precise.
 
-BATCH    = int(CLPAC/CELLS)
+BATCH    = int(CLPAC/CELLS)  # for routines where wi loop over cells, sending BATCH PPs from each cell
 EMDONE   = None
 
 
@@ -1658,7 +1682,8 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                 # Parameters for the current frequency
                 if ((FREQ<USER.SIM_F[0])|(FREQ>USER.SIM_F[1])): continue # FREQ not simulated!!
                 
-                if (VERBOSE): print("  FREQ %3d/%3d  %10.3e" % (IFREQ+1, NFREQ, FREQ))
+                if (VERBOSE):
+                    sys.stdout.write("  FREQ %3d/%3d  %10.3e" % (IFREQ+1, NFREQ, FREQ))
             
                 G = 0.0  # not used !
                 if (WITH_ABU>0): # ABS, SCA vectors
@@ -1750,15 +1775,17 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                 if (USER.USE_EMWEIGHT>0):
                     skip += 1
                     if (skip % USER.EMWEIGHT_SKIP==0):
+                        t_emwei = time.time()
                         # weighting according to total emission, even if reference field used!
-                        tmp      =  asarray(EMITTED[:,IFREQ-REMIT_I1].copy(), float64)
+                        tmp     =  asarray(EMITTED[:,IFREQ-REMIT_I1].copy(), float64)
                         # print 'EMITTED ', np.percentile(tmp, (0.0, 10.0, 90.0, 100.0))
                         if (1):
                             mmm      =  nonzero(~isfinite(tmp))                        
                             if (VERBOSE):
-                                print('='*80)
-                                print('EMWEI --- EMISSION NOT FINITE: %d'% len(mmm[0]))
-                                print('='*80)
+                                if (len(mmm[0])>0):
+                                    print('='*80)
+                                    print('EMWEI --- EMISSION NOT FINITE: %d'% len(mmm[0]))
+                                    print('='*80)
                             tmp[mmm] = 0.0
                         tmp[:]   =  CLPAC*tmp/(sum(tmp)+1.0e-65)  # ~ number of packages
                         ## print 'EMWEI   ', np.percentile(tmp, (0.0, 10.0, 90.0, 100.0))
@@ -1771,11 +1798,10 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                             EMWEI[nonzero(EMWEI<USER.EMWEIGHT_LIM[2])] = 0.0 # ignore completely
                         ## print 'REMAIN ', len(nonzero(EMWEI>1e-7)[0])
                         if (USER.USE_EMWEIGHT==2):
-                            # Host provides weights in EMWEI and the indices of emitting
-                            #    cells in EMINDEX
-                            # Host makes number of packages divisible by 3 and makes several
+                            # Host provides weights in EMWEI and the indices of emitting cells in EMINDEX
+                            # Host makes number of packages divisible by EMWEI2_STEP and makes several
                             # calls, host keeps count of the simulated packages while kernel
-                            # always simulates 3 packages for any cell in the current EMINDEX
+                            # always simulates EMWEI2_STEP packages for any cell in the current EMINDEX
                             EMPAC    = asarray(EMWEI2_STEP*np.round(tmp/EMWEI2_STEP), int32)  # packages per cell
                             EMWEI[:] = 1.0/(EMPAC[:]+1e-10)                      # packet weigth
                             ## print 'EMWEI', EMWEI
@@ -1786,11 +1812,40 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                             #       packages for every cell in EMINDEX
                             #  * host increases EMDONE[EMINDEX] += 3
                             #  ... until no cells left
+                        if (USER.USE_EMWEIGHT==3):
+                            # Basic importance sampling
+                            #   cell_index = EMINDEX[round(rand())*CELLS]
+                            #   weight     = EMWEI[cell_index]
+                            # Other routines assume that GLOBAL threads loop over cells, BATCH PPs from each cell
+                            # Here each wi select a random cell, GLOBAL*BATCH == CLPAC
+                            CLPAC       =  Fix(CLPAC, GLOBAL)
+                            BATCH       =  int(round(CLPAC/GLOBAL))      # PPs per wi, not PPs per cell !!
+                            if (1):
+                                tmp[:]  =  clip(tmp[:], 1.0e-5, 1e33)
+                            tmp        /=  np.sum(tmp)                   #  new probability per cell
+
+                            ## test without cell weighting
+                            ## tmp[:]      =  1.0/CELLS
+                            
+                            # default PP weight 1 / (CLPAC/CELLS); probability of a cell is modified from 1/CELLS to tmp
+                            EMWEI[:]    =  1.0/(CLPAC/CELLS) * (1.0/CELLS) / tmp[:]   # p(true) / p(new)
+                            
+                            tmp         =  cumsum(tmp)
+                            tmp        /=  tmp[-1]                       #  cell -> P
+                            ip          =  interp1d(tmp, arange(CELLS))  #  P    -> cell
+                            #  EMINDEX[CELLS*rand()] = cell_index
+                            EMINDEX     =  asarray(np.round(ip(clip(linspace(0.0, 1.0, CELLS),tmp[0], tmp[-1]))), int32)
+                            # actual EMWEI =  1/(CLPAC/CELLS) /  dP,  where dP = P[i]-P[-1],  or dP[0] = P[0]
+                            cl.enqueue_copy(commands[ID], EMINDEX_buf[ID], EMINDEX)
+                            ##
+                            ## print("EMWEI=3  CLPAC %d, GLOBAL %d, BATCH %d\n" % (CLPAC, GLOBAL, BATCH))
+                            
                         commands[ID].finish()
                         cl.enqueue_copy(commands[ID], EMWEI_buf[ID], EMWEI)
                         commands[ID].finish()
                         # print('EMWEIGHT', prctile(EMWEI, (0, 10, 50, 90, 100)))
-
+                        # print("  ..... emwei initialisation: %.3f seconds" % (time.time()-t_emwei))
+                        
                         if (iteration==-1):
                             if (IFREQ>=24):
                                 clf()
@@ -1818,8 +1873,8 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                     EMINDEX = zeros(CELLS, int32)
                     loops = 0
                     while 1:
-                        m     = nonzero(EMDONE<EMPAC) # cells that should send packages
-                        no    = len(m[0])
+                        m      = nonzero(EMDONE<EMPAC) # cells that should send packages
+                        no     = len(m[0])
                         loops += 1
                         # if (loops%10==0): print ' loops ', loops
                         if (no<1): break  # all done
@@ -1830,12 +1885,11 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                         EMINDEX[no:CELLS] = -1
                         cl.enqueue_copy(commands[ID], EMINDEX_buf[ID], EMINDEX)
                         kernel_ram_cl(commands[ID], [8192,], [LOCAL,],
-                        np.int32(2),  CLPAC, BATCH, seed, ABS_buf[ID], SCA_buf[ID],
-                        FF,
-                        LCELLS_buf[ID], OFF_buf[ID], PAR_buf[ID], DENS_buf[ID], EMIT_buf[ID],
-                        TABS_buf[ID], DSC_buf[ID], CSC_buf[ID], XAB_buf[ID], EMWEI_buf[ID],
-                        INT_buf[ID], INTX_buf[ID], INTY_buf[ID], INTZ_buf[ID],
-                        EMINDEX_buf[ID], OPT_buf[ID])  # <-- one additional parameter in case of USE_EMWEIGHT==2
+                                      np.int32(2),  CLPAC, BATCH, seed, ABS_buf[ID], SCA_buf[ID], FF,
+                                      LCELLS_buf[ID], OFF_buf[ID], PAR_buf[ID], DENS_buf[ID], EMIT_buf[ID],
+                                      TABS_buf[ID], DSC_buf[ID], CSC_buf[ID], XAB_buf[ID], EMWEI_buf[ID],
+                                      INT_buf[ID], INTX_buf[ID], INTY_buf[ID], INTZ_buf[ID], EMINDEX_buf[ID], OPT_buf[ID],
+                                      ABU_buf[ID])
                         commands[ID].finish()
                         EMDONE[m] += EMWEI2_STEP  # kernel did () packages for each cell in EMINDEX
                         
@@ -1847,13 +1901,14 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                         kernel_ram_cl(commands[ID], [GLOBAL,], [LOCAL,],
                         # 0           1      2      3     4            5             6  
                         np.int32(2),  CLPAC, BATCH, seed, ABS_buf[ID], SCA_buf[ID],  FF,
-                        # 11            12           13           14            15          
+                        # 7             8            9            10            11          
                         LCELLS_buf[ID], OFF_buf[ID], PAR_buf[ID], DENS_buf[ID], EMIT_buf[ID],
-                        # 16          17           18           19           20             
+                        # 12          13           14           15           16             
                         TABS_buf[ID], DSC_buf[ID], CSC_buf[ID], XAB_buf[ID], EMWEI_buf[ID],
-                        # 21         22            23            24      
-                        INT_buf[ID], INTX_buf[ID], INTY_buf[ID], INTZ_buf[ID], EMINDEX_buf[ID], OPT_buf[ID],
-                        ABU_buf[ID])
+                        # 17         18            19            20      
+                        INT_buf[ID], INTX_buf[ID], INTY_buf[ID], INTZ_buf[ID],
+                        # 21             22           23
+                        EMINDEX_buf[ID], OPT_buf[ID], ABU_buf[ID])
                     else:
                         # *** DFPAC + WITH_ROI_SAVE ***
                         # print("WITH_ROI_SAVE --- kernel_ram_cl")                    
@@ -1872,7 +1927,10 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                 commands[ID].finish()
                 #----------------------------------------------------------------------------------------
                 Tkernel += time.time()-t0
-    
+
+                if (VERBOSE):
+                    sys.stdout.write("   %6.2f\n" % (time.time()-t0))
+                    
                 if (0):
                     if ((time.time()-t0)>7200): # something wrong ??
                         print('EXIT !!!!!!!!!!!!!')
@@ -2025,12 +2083,12 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                 sys.exit()
             t0 = time.time()
             if (('CLT' in USER.KEYS)&(not(USER.WITH_ALI))):    # calculate temperatures on device
-                kernel_T = program[0].EqTemperature
-                # EMIT + DENS  ->  TABS
-                #                               level     adhoc       kE          Emin        NE        OFF    LCELLS  TTT    DENS   EMIT   TNEW
-                kernel_T.set_scalar_arg_dtypes([np.int32, np.float32, np.float32, np.float32, np.int32, None,  None,   None,  None,  None,  None ])
-                TTT_buf  = cl.Buffer(context[0], mf.READ_ONLY,  TTT.nbytes)
-                cl.enqueue_copy(commands[0], TTT_buf, TTT)
+                # kernel_T = program[0].EqTemperature
+                # # EMIT + DENS  ->  TABS
+                # #                               level     adhoc       kE          Emin        NE        OFF    LCELLS  TTT    DENS   EMIT   TNEW
+                # kernel_T.set_scalar_arg_dtypes([np.int32, np.float32, np.float32, np.float32, np.int32, None,  None,   None,  None,  None,  None ])
+                # TTT_buf  = cl.Buffer(context[0], mf.READ_ONLY,  TTT.nbytes)
+                # cl.enqueue_copy(commands[0], TTT_buf, TTT)
                 cl.enqueue_copy(commands[0], EMIT_buf[0], EMIT)
                 for l in range(LEVELS):
                     kernel_T(commands[0], [GLOBAL,], [LOCAL,], l, ADHOC, kE, Emin, NE,
@@ -2131,6 +2189,7 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                 if (VERBOSE): 
                     print('    T < 3K   : %d' % (len(nonzero(TNEW[mok]<3.0)[0])))
                     print('    T >1599K : %d' % (len(nonzero(TNEW[mok]>1599.0)[0])))
+                    print('   <T>       : %7.3f K' % (np.mean(TNEW[mok])))
                 TNEW[mok] = clip(TNEW[mok], 3.0, 1600.0)
                 if (VERBOSE): 
                     if (len(TNEW)<2e7):
@@ -2162,37 +2221,35 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                     # Calculate batches of cells, all frequencies at the same time
                     # Is this faster for IO ?
                     # note: EMITTED = EMITTED[CELLS, REMIT_I2-REMIT_I1+1
-                    nfreq       =  REMIT_I2+1 - REMIT_I1                #  only this many in EMITTED
-                    batch       =  [32768, 65536, 131072, 262144][1]
-                    E_FREQ_buf  =  cl.Buffer(context[0], mf.READ_ONLY,  4*nfreq)
-                    E_ABS_buf   =  cl.Buffer(context[0], mf.READ_ONLY,  4*nfreq)
-                    E_EMIT_buf  =  cl.Buffer(context[0], mf.WRITE_ONLY, 4*batch*nfreq)  # E_EMIT[batch, nfreq]
-                    kernel_emission2 = program[0].Emission2
-                    kernel_emission2.set_scalar_arg_dtypes([np.int32, np.int32, np.int32, None,None,None,None,None])
+                    # nfreq       =  REMIT_I2+1 - REMIT_I1                #  only this many in EMITTED
+                    # E_BATCH     =  [32768, 65536, 131072, 262144][1]
+                    # E_FREQ_buf  =  cl.Buffer(context[0], mf.READ_ONLY,  4*nfreq)
+                    # E_ABS_buf   =  cl.Buffer(context[0], mf.READ_ONLY,  4*nfreq)
+                    # E_EMIT_buf  =  cl.Buffer(context[0], mf.WRITE_ONLY, 4*E_BATCH*nfreq)  # E_EMIT[E_BATCH, nfreq]
+                    # kernel_emission2 = program[0].Emission2
+                    # kernel_emission2.set_scalar_arg_dtypes([np.int32, np.int32, np.int32, None,None,None,None,None])
                     ###
                     cl.enqueue_copy(commands[0], E_FREQ_buf, asarray(FFREQ[   REMIT_I1:(REMIT_I2+1)], float32))
                     cl.enqueue_copy(commands[0], E_ABS_buf,  asarray(AFABS[0][REMIT_I1:(REMIT_I2+1)], float32)) #  FABS... only one dust!
-                    tmp = zeros((batch, nfreq), float32)
-                    for a in arange(0, CELLS-1, batch): # cells [a,b[, frequencies [REMIT_I1, REMIT_I2]
-                        b = min([a+batch, CELLS])
-                        kernel_emission2(commands[0], [GLOBAL,], [LOCAL,], a, b, nfreq, 
+                    tmp = zeros((E_BATCH, E_NFREQ), float32)
+                    for a in arange(0, CELLS-1, E_BATCH): # cells [a,b[, frequencies [REMIT_I1, REMIT_I2]
+                        b = min([a+E_BATCH, CELLS])
+                        kernel_emission2(commands[0], [GLOBAL,], [LOCAL,], a, b, E_NFREQ,
                                          E_FREQ_buf, E_ABS_buf,    DENS_buf[0], EMIT_buf[0],   E_EMIT_buf)
                         cl.enqueue_copy(commands[0], tmp, E_EMIT_buf) # tmp[cells, nfreq]
                         EMITTED[a:b, :] = tmp[0:(b-a),:]
                     ###                    
-                    del tmp, E_FREQ_buf, E_ABS_buf, E_EMIT_buf
+                    ### del tmp, E_FREQ_buf, E_ABS_buf, E_EMIT_buf
                 else:
-                    kernel_emission = program[0].Emission
-                    # FREQ, FABS,   DENS, T, EMIT
-                    kernel_emission.set_scalar_arg_dtypes([np.float32, np.float32, None, None, None])
+                    #                                        FREQ        AFABS       DENS  EMIT=T  TABS=emission
+                    # kernel_emission.set_scalar_arg_dtypes([np.float32, np.float32, None, None,   None])
                     # Note:  EMIT_buf is reused for temperature, TABS_buf for the resulting emission
-                    #        ... because EMIT_buf is read only!
+                    #        ... because EMIT_buf is read only!   $$$$
                     a, b = REMIT_I1, REMIT_I2+1
                     for ifreq in range(a, b):
                         kernel_emission(commands[0], [GLOBAL,], [LOCAL,], float(FFREQ[ifreq]), float(AFABS[0][ifreq]),
-                        #         *** T ***  *** emission ***
-                        DENS_buf[0], EMIT_buf[0],  TABS_buf[0])
-                        cl.enqueue_copy(commands[0], EMIT, TABS_buf[0])
+                                        DENS_buf[0], EMIT_buf[0],  TABS_buf[0])
+                        cl.enqueue_copy(commands[0], EMIT, TABS_buf[0])   # TABS_buf = calculated emission
                         # EMITTED ~ directly EMIT, no scaling with FACTOR --- *= FACTOR IS ALREADY IN THE KERNEL !!!
                         EMITTED[:, ifreq-REMIT_I1] = EMIT  #  FACTOR x PHOTONS / Hz / cm3
                 ####
@@ -2230,7 +2287,7 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                     tave = mean(TNEW)
                     EMITTED[:, ifreq] =   \
                         ((FACTOR*4.0*np.pi/(PLANCK*FFREQ[ifreq])) *  AFABS[0][ifreq] * PlanckTest(freq, TNEW[:])) / (USER.GL*PARSEC)
-                    print("--------------- Planck(%.3e, %.3e) = %.3e" % (freq, tave, PlanckTest(freq, tave)))
+                    # print("--------------- Planck(%.3e, %.3e) = %.3e" % (freq, tave, PlanckTest(freq, tave)))
                     # assert(abs(H_K-4.799243348e-11)<1e-17)
                     # assert(abs(H_CC-7.372496678475674e-48)<1e-50)
                     # print("ifreq %3d  %.3e %.3e EMITTED %.3e  %.3e" % (ifreq, freq, AFABS[0][ifreq], mean(EMITTED[:,ifreq]), PlanckTest(freq, mean(TNEW[:]))))
@@ -2238,7 +2295,10 @@ if (not('SUBITERATIONS' in USER.KEYS)):
             Tsolve = time.time()-t0
             if (VERBOSE):
                 print("Calculate emission: %.1f seconds" % (time.time()-t00))
-            
+                if (0):
+                    for ifreq in range(NFREQ):
+                        print("    EMITTED[%3d] = %12.4e" % (ifreq, mean(EMITTED[:,ifreq])))
+                
         if (VERBOSE): print("--- End of iteration ---")
         # end of -- for iteration
         if (0):
