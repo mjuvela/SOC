@@ -1218,7 +1218,14 @@ class DustemDustO(DustO):
                     self.SIZE_F    *= mix
                     self.CRT_SFRAC *= mix
                     
-                
+                # redo normalisation after potential mix!
+                mass             =  (4.0*pi/3.0) * sum( self.CRT_SFRAC * self.SIZE_A**3.0 * rho )
+                self.CRT_SFRAC  *=  mH*rmass / mass  # grain density included in self.SFRAC
+                if (1):
+                    mass = sum(self.CRT_SFRAC * (4.0*pi/3.0) * self.SIZE_A**3.0  * rho)
+                    print('Dust mass %10.3e == %10.4e' % (mass, mH*rmass))
+                    print("SFRAC: ", self.CRT_SFRAC)
+                    assert(abs((mass-mH*rmass)/mass)<0.01)                
             ## 
             break  # A SINGLE DUST COMPONENT !!
         

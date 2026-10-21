@@ -41,7 +41,7 @@ __kernel void DoSolve(const      int     batch,   //  0  cells per call
    int j, u, l ;
    // Heating
    
-   // 2019-11-04 --- in test problem this was now faster on GPU than the the use of local AA, no effect on CPU
+   // 2019-11-04 --- in test problem this was now faster on GPU than the use of local AA (?), no effect on CPU
    for(l=0; l<NE-1; l++) {
       for(u=l+1; u<NE; u++) {
          I = 0.0f ;
@@ -66,6 +66,23 @@ __kernel void DoSolve(const      int     batch,   //  0  cells per call
    //         L[IND(u,l)] = max(I, 0.0f) ;
    //      }
    //   }
+
+
+#if 0
+   if ((id==10)&&(isize==43)) {
+      for(int u=1; u<NE; u++) {   // A[j,i], i<J  = lower triangle = heating only
+         for(int l=0; l<u; l++) {
+            printf("@@H  %03d  %03d  %12.4e\n", u, l, L[IND(u,l)]) ;
+         }
+      }
+      for(int j=1; j<NE; j++) {  // Tdown[NE]
+         printf("@@C %05d  %12.4e\n", j, Tdown[j]) ;
+      }
+      for(int j=0; j<NFREQ; j++) {  // ABS[NFREQ], AF[NFREQ]
+         printf("@@A %05d   %12.4e  %12.4e\n", j, ABS[j], AF[j]) ;
+      }
+   }
+#endif
    
    // bottom row --- is already the original A matrix !
    // row NE-2 is still also the original... except for the diagonal that we can skip
@@ -87,7 +104,7 @@ __kernel void DoSolve(const      int     batch,   //  0  cells per call
          for(int i=0; i<=j; i++) XL[i] *= 1.0e-20f ;
       }
    }
-   // Normalise
+   // Normalise sum == 1.0
    I = 0.0 ;        for(int i=0; i<NE; i++)  I     +=  XL[i] ;
    I = 1.0f / I ;   for(int i=0; i<NE; i++)  XL[i]  =  XL[i]*I ;
    // Emission

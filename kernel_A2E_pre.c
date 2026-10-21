@@ -256,6 +256,18 @@ __kernel void PrepareTdown2(const    int     NFREQ,       // number of frequenci
    I   *=  9.612370e+58 / (Eu-El) ;   //  ==    8*pi / (c^2 h^3)
    Tdown[u] = I ;
    // printf("%12.4e\n", I) ;
+#if 0
+   if (u==1) {
+      printf("NFREQ %d   NE %d\n", NFREQ, NE) ;
+      for(int i=0; i<NFREQ; i++) {
+         printf("##F   %12.4e  %12.4e\n", FREQ[i], SKABS[i]) ; //   freq,   CABS==pi*a^2*Qabs
+      }
+      I *= 1.0 ;
+      for(int i=0;i<NE; i++) {
+         printf("##E   %12.4e  %12.4e  %12.4e\n", 0.5*(T[i]+T[i+1]), 0.5*(E[i]+E[i+1]), Tdown[i]) ;     //   (T, E, Tdown)
+      }
+   }
+#endif
 }
 
 

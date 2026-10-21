@@ -84,9 +84,11 @@ GPU       =  0.0      #     GPU.PLATFORM
 total_A2E_time = time.time()
 
 
-#BATCH =  8192     # Restricted by available GPU memory? Apparently not (any more).
-BATCH  = 4096        #   52.3 seconds,  5007 cells per second
-BATCH  = 5120        #   46.9 seconds,  5593 cells per second
+# Default has been 8192, but with a large number of energy bins, NE>500, 
+# one may run out of memory on a small GPU (8GB).
+# BATCH =  2048     # Restricted by available GPU memory? Apparently not (any more).
+# BATCH  = 4096        #   52.3 seconds,  5007 cells per second
+# BATCH  = 5120        #   46.9 seconds,  5593 cells per second
 BATCH  = 8192        #   37.4 seconds,  7006 cells per second
 # BATCH  = 16384     #   35.9 seconds,  7303 cells per second -- diminishing returns
 # BATCH = 32768      #   36.4 seconds,  7210 cells per second
@@ -156,7 +158,7 @@ else:          NOFREQ = NFREQ
 np.asarray([CELLS, NOFREQ], np.int32).tofile(fp)  # 2018-12-29 -- dropped levels from the python files !!
 fp.close()
 if (AALG):
-    fp    =  open(sys.argv[3]+'.P', 'wb')         # poalrised emission
+    fp    =  open(sys.argv[3]+'.P', 'wb')         # polarised emission
     np.asarray([CELLS, NOFREQ], np.int32).tofile(fp)
     fp.close()
 
@@ -177,7 +179,7 @@ two last channels were set to zero, the results of the python and cpp versions c
 similar to the julia results.
    ==> it is very likely that the difference *is* produced by cpp/py handling those two frequency
 bins incorrectly  ==> one should use the julia version to create the solver file and also
-implement in A2E_pre.py also that same version of Iw calculation !!!!
+implement in A2E_pre.py also that same version of Iw calculation...
    The actual error depends on the significance of absorptions in the last two frequency bins
 but might also on how the enthalpy limits W1-W4 happend to reside in relation to those frequencies.
 """
@@ -439,7 +441,7 @@ def process_stochastic(isize, AALG):
         fpX.close()
 
     total_call_time = time.time() - total_call_time
-    print("process_stochastic: kernel %.4f, total %.4f" % (total_kernel_time, total_call_time))
+    print("      process_stochastic:  --- kernel %.4f --- total %.4f = %.3e sec/cell" % (total_kernel_time, total_call_time, total_call_time/CELLS))
 
 
 """

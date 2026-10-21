@@ -632,7 +632,6 @@ def read_scattering_functions(USER):
         kernel needs to have abundance arrays for all dust species !
     """
     ndust =  len(USER.file_scafunc)   #  ndust>1 implies -D WITH_MSF = multiple scattering functions
-    # print("ndust=%d" % ndust)
     if ((ndust!=len(USER.file_optical))&(ndust!=1)):
         print("Must have either a single scattering function (DSC file) or one for each dust!")
         sys.exit()
@@ -1558,7 +1557,7 @@ def AnalyseExternalPointSources(NX, NY, NZ, PSPOS, NO_PS, PS_METHOD):
     XPS_NSIDE = zeros(NO_PS, int32)       # number of cloud sides visible from the source
     XPS_SIDE  = zeros(3*NO_PS, int32)     # indices[3] of the cloud sides
     XPS_AREA  = zeros(3*NO_PS, float32)   # relative solid angle, each side visible from the source
-    axis      = zeros(3, float32)         # centre axis for the cone for PS_METHOD==5
+    axis      = [zeros(3, float32) for i in range(NO_PS)]   # centre axes for the cones for PS_METHOD==5 (one per source)
     for i in range(NO_PS):
         if ((PSPOS[i][0]>=0.0)&(PSPOS[i][0]<=NX)&(PSPOS[i][1]>=0.0)&(PSPOS[i][1]<=NY)&(PSPOS[i][2]>=0.0)&(PSPOS[i][2]<=NZ)):
             # this one is inside the model volume
@@ -1569,32 +1568,32 @@ def AnalyseExternalPointSources(NX, NY, NZ, PSPOS, NO_PS, PS_METHOD):
         if (PSPOS[i][0]>NX):   # +X cloud side is illuminated
             XPS_SIDE[3*i+no] =   0
             XPS_AREA[3*i+no] = 1.0                # === REAL PROJECTED AREAS NOT YET CALCULATED ===
-            axis             = array([-1.0, 0.0, 0.0], float32)
+            axis[i]         = array([-1.0, 0.0, 0.0], float32)
             no += 1
         if (PSPOS[i][0]<0.0):  # -X side is illuminated
             XPS_SIDE[3*i+no] =   1
             XPS_AREA[3*i+no] = 1.0
-            axis             = array([+1.0, 0.0, 0.0], float32)
+            axis[i]         = array([+1.0, 0.0, 0.0], float32)
             no += 1
         if (PSPOS[i][1]>NY):   # +Y cloud side is illuminated
             XPS_SIDE[3*i+no] =   2
             XPS_AREA[3*i+no] = 1.0
-            axis             = array([0.0, -1.0, 0.0], float32)
+            axis[i]         = array([0.0, -1.0, 0.0], float32)
             no += 1
         if (PSPOS[i][1]<0.0):  # -Y side is illuminated
             XPS_SIDE[3*i+no] =   3
             XPS_AREA[3*i+no] = 1.0
-            axis             = array([0.0, +1.0, 0.0], float32)
+            axis[i]         = array([0.0, +1.0, 0.0], float32)
             no += 1
         if (PSPOS[i][2]>NZ):   # +Z cloud side is illuminated
             XPS_SIDE[3*i+no] =   4
             XPS_AREA[3*i+no] = 1.0
-            axis             = array([0.0, 0.0, -1.0], float32)
+            axis[i]         = array([0.0, 0.0, -1.0], float32)
             no += 1
         if (PSPOS[i][2]<0.0):  # -Z side is illuminated
             XPS_SIDE[3*i+no] =   5
             XPS_AREA[3*i+no] = 1.0
-            axis             = array([0.0, 0.0, +1.0], float32)
+            axis[i]         = array([0.0, 0.0, +1.0], float32)
             no += 1
         ###
         XPS_NSIDE[i] = no
@@ -1602,22 +1601,24 @@ def AnalyseExternalPointSources(NX, NY, NZ, PSPOS, NO_PS, PS_METHOD):
     ###
     if (PS_METHOD==5):
         # Use XPS_SIDE[3*i] to indicate the main illuminated side and put to XPS_AREA the
-        #    opening angle in radians for the cone that contains the cloud.
+        #    cosine of the half-opening angle of the cone that contains the cloud.
         # At the moment we leave XPS_SIDE[3*i] to the value set above -- should be ok but may not
         #    be optimal, i.e. the cone might be smaller if one selected another axis for it.
         #    Current value is already optimal if only one side is visible from the source.
-        # Find the maximum angle between the selected cone centre axis *axis* and the vector from the point 
+        # Find the maximum angle between the selected cone centre axis *axis[i]* and the vector from the point 
         #   source to any surface position of the cloud. One can check the eight corner positions of 
-        #   the cloud -- the largest angle will cover all of the cloud. Opening angle in radians
-        #   is put into XPS_AREA[3*i]
+        #   the cloud -- the largest angle will cover all of the cloud. The cosine of that
+        #   maximum angle is put into XPS_AREA[3*i]
         for i in range(NO_PS):
+            if (XPS_NSIDE[i]==0):
+                continue          # internal source -- no cone
             cos_theta = 0.5*pi
             for ii in range(8):  # loop over the eight corner positions
                 vec    =  zeros(3, float32)
-                vec[0] =  NX*(ii%2==0)        - PSPOS[i][0]
-                vec[1] =  NY*((ii/2)%2==0)    - PSPOS[i][1]
-                vec[2] =  NZ*((ii/4)%2==0)    - PSPOS[i][2]
-                tmp    =  fabs(dot(axis, vec)) / np.linalg.norm(vec)
+                vec[0] =  NX*(ii%2==0)       - PSPOS[i][0]
+                vec[1] =  NY*((ii//2)%2==0)  - PSPOS[i][1]
+                vec[2] =  NZ*((ii//4)%2==0)  - PSPOS[i][2]
+                tmp    =  fabs(dot(axis[i], vec)) / np.linalg.norm(vec)
                 # print("    CORNER %d:   COS_THETA %.2f" % (ii, tmp))
                 cos_theta  =  min([cos_theta, tmp])
             XPS_AREA[3*i] = cos_theta

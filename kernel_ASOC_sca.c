@@ -494,8 +494,8 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
                         __global   float   *OUT,       // 22 -- scattering arrays, NDIR*NPIX*NPIX
                         __global   float   *ABU,       // 23
                         __global   OTYPE   *OPT,       // 24
-                        __global   float   *XPS_NSIDE, // 25
-                        __global   float   *XPS_SIDE,  // 26
+                        __global   int     *XPS_NSIDE, // 25
+                        __global   int     *XPS_SIDE,  // 26
                         __global   float   *XPS_AREA,  // 27
                         constant   int     *ROI_DIM,   // 28 [RNX, RNY, RNZ] = ROI dimensions in the input file
                         __global   float   *ROI_LOAD   // 29 external file of incoming ROI photons
@@ -1483,8 +1483,8 @@ __kernel void SimRAM_PS(const      int      PACKETS,   //  0 - number of packets
                         __global   float   *OUT,       // 21 -- scattering arrays, NDIR*NPIX*NPIX
                         __global   float   *ABU,       // 22
                         __global   OTYPE   *OPT,       // 23
-                        __global   float   *XPS_NSIDE, // 24
-                        __global   float   *XPS_SIDE,  // 25
+                        __global   int     *XPS_NSIDE, // 24
+                        __global   int     *XPS_SIDE,  // 25
                         __global   float   *XPS_AREA   // 26
                        ) 
 {

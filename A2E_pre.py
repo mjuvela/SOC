@@ -63,12 +63,9 @@ def PlanckIntensity(f, T):
     
     
 if (1): # 2019-10-25
+    # TMIN and TMAX vectors are the limits listed in <dust>.size
     TMIN = DUST.TMIN
     TMAX = DUST.TMAX
-
-# ok, TMIN and TMAX vectors are the limits listed in <dust>.size
-# print(TMIN, TMAX)
-# sys.exit()
 
 Ibeg  = np.zeros(NFREQ, np.int32)
 L     = np.zeros(NE*NE, np.int32)
@@ -199,6 +196,7 @@ if (1): # save also temperature grids for each size... auxiliary file
     asarray([NSIZE, NEPO], np.int32).tofile(fpX)
 else:
     fpX = None
+
     
 for isize in range(NSIZE):    
     
@@ -208,27 +206,25 @@ for isize in range(NSIZE):
     emax  =  DUST.T2E(isize, TMAX[isize])
     # print("nsize [%3d] %9.4f um  E %.3e - %.3e  T = %5.2f - %7.2f K" % (isize, DUST.SIZE_A[isize]*1.0e4, emin, emax, TMIN[isize], TMAX[isize]))
 
-
-    if (0): #
-        E     =  exp(log(emin)+(arange(NEPO)/float(NE))*(log(emax)-log(emin))) # NEPO elements
+    if (1): #
+        E     =  np.logspace(log10(emin), log10(emax), NEPO)
         T     =  DUST.E2T(isize, E)       # NEPO !
-    elif(1):
+    elif (0):  # THIS HAS BEEN THE DEFAULT ???
         # GSETDustO.cpp has --  e = TemperatureToEnergy_Int(s, TMIN[s]+(TMAX[s]-TMIN[s])* pow(ie/(NEPO-1.0), 2.0)) ;
-        T   =  TMIN[isize]+(TMAX[isize]-TMIN[isize])* (arange(NEPO)/(NEPO-1.0))**2.0
+        T   =  TMIN[isize] + (TMAX[isize]-TMIN[isize]) * (arange(NEPO)/(NEPO-1.0))**2.0
         E   =  DUST.T2E(isize, T)
-    elif(0):
+    elif (0):
         T   =  np.logspace(log10(TMIN[isize]), log10(TMAX[isize]), NEPO)
         E   =  DUST.T2E(isize, T)
     else:
         T   =  TMIN[isize]+(TMAX[isize]-TMIN[isize])* (arange(NEPO)/(NEPO-1.0))**3.5
         E   =  DUST.T2E(isize, T)
 
-
-
-        
+    # Kernel uses SKABS/SFRAC ==  pi*a^2*Q !!
     cl.enqueue_copy(queue, SKABS_buf, asarray((SKABS[isize,:]/DUST.CRT_SFRAC[isize]),np.float32))
     cl.enqueue_copy(queue, E_buf, asarray(E, np.float32))  # E[NEPO]
     cl.enqueue_copy(queue, T_buf, asarray(T, np.float32))  # T[NEPO]  --- NEPO elements for interpolation in PrepareTdown
+
 
     
     if (fpX):
@@ -257,7 +253,7 @@ for isize in range(NSIZE):
     else:  #  again confirmed 2025-04-04 -- PrepareTdown() and PrepareTdown2() give identical emission.
         # the same results ...
         PrepareTdown2(queue, [GLOBAL,], [LOCAL,], NFREQ, FREQ_buf,         SKABS_buf, NE, E_buf, T_buf, Tdown_buf)
-
+        
         
     cl.enqueue_copy(queue, Tdown, Tdown_buf)    # --> Tdown
     ### Tdown /= DUST.CRT_SFRAC[isize]   # GRAIN_DENSITY already in CRT_SFRAC !! --- division already in SKABS
@@ -266,6 +262,28 @@ for isize in range(NSIZE):
     # print('SKABS ', SKABS[isize, 0:5], SKABS[isize, -5:])
     # print(Tdown[0:4])
 
+    #if (isize==43):
+    #    # print("isize=%d, T=%.3f-%.3f, E=%.3e-%.3e" % (isize, T[0], T[-1], E[0], E[-1])) ;
+    #    # print("FREQ  = %12.4e - %12.4e Hz,    %d bins" % (FREQ[0], FREQ[-1], len(FREQ)))
+    #    # print("T     = %12.4e - %12.4e K ,    %d bins" % (T[0], T[-1], len(T)))
+    #    # print("E     = %12.4e - %12.4e erg ,  %d bins" % (E[0], E[-1], len(E)))
+    #    ### PrepareTdown2(queue, [GLOBAL,], [LOCAL,], NFREQ, FREQ_buf,         SKABS_buf, NE, E_buf, T_buf, Tdown_buf) 
+    #    print("NFREQ %d   NE %d" % (NFREQ, NE))
+    #    for ifreq in range(NFREQ):
+    #        print("##F   %12.4e  %12.4e" % (FREQ[ifreq], SKABS[isize,ifreq]/DUST.CRT_SFRAC[isize]))
+    #    ta = T[0:-1]+0.5*diff(T)
+    #    ea = E[0:-1]+0.5*diff(E)
+    #    for i in range(NE):
+    #        print("##E   %12.4e  %12.4e  %12.4e" % (ta[i], ea[i], Tdown[i]))
+       
+
+    
+    #if 1:
+    #    if (isize==43):
+    #        tmp = zeros(NFREQ, float32)
+    #        cl.enqueue_copy(queue, tmp, SKABS_buf)    # should be just pi*2^2*Qabs
+    #        tmp.tofile('dump.a2e_skabs')        
+    
     #if (isize==5):
     #    OPT = { 'E': E,  'T': T,  'FREQ': FREQ, 'NE': NE,
     #            'SKABS' : asarray((SKABS[isize,:]/DUST.CRT_SFRAC[isize]),np.float32),

@@ -642,10 +642,11 @@ if (not(USER.NOABSORBED)): # we store absorptions at all frequencies, use mmap a
             
         
     
-    
+oplgkE = 0.0    
 Emin, kE, TTT, TTT_buf, kernel_T = None, None, None, None, None
 NE = 30000  # number of energies when interpolating Tdust for non-stochastic grains
-if ((not(USER.NOSOLVE))&('CLT' in USER.KEYS)):  # Calculate mapping T <-> E
+## if ((not(USER.NOSOLVE))&('CLT' in USER.KEYS)):  # Calculate mapping T <-> E
+if (not(USER.NOSOLVE)):  # Calculate mapping T <-> E
     # 2018-12-08 -- at the moment require that if we are solving dust emission
     #               inside SOC, we are dealing with non-stochastically heated grains
     #               and therefore there must be only a single dust component
@@ -1825,7 +1826,7 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                             tmp        /=  np.sum(tmp)                   #  new probability per cell
 
                             ## test without cell weighting
-                            ## tmp[:]      =  1.0/CELLS
+                            # tmp[:]      =  1.0/CELLS
                             
                             # default PP weight 1 / (CLPAC/CELLS); probability of a cell is modified from 1/CELLS to tmp
                             EMWEI[:]    =  1.0/(CLPAC/CELLS) * (1.0/CELLS) / tmp[:]   # p(true) / p(new)
@@ -1834,7 +1835,8 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                             tmp        /=  tmp[-1]                       #  cell -> P
                             ip          =  interp1d(tmp, arange(CELLS))  #  P    -> cell
                             #  EMINDEX[CELLS*rand()] = cell_index
-                            EMINDEX     =  asarray(np.round(ip(clip(linspace(0.0, 1.0, CELLS),tmp[0], tmp[-1]))), int32)
+                            #  floor bad, round bad, floor(1+...) ok ?
+                            EMINDEX     =  asarray(np.floor(1.0+ip(clip(linspace(0.0, 1.0, CELLS),tmp[0], tmp[-1]))), int32)
                             # actual EMWEI =  1/(CLPAC/CELLS) /  dP,  where dP = P[i]-P[-1],  or dP[0] = P[0]
                             cl.enqueue_copy(commands[ID], EMINDEX_buf[ID], EMINDEX)
                             ##
