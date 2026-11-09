@@ -267,7 +267,7 @@ __kernel void SimRAM_HP(const      int      PACKETS,   //  0 - number of packets
                if (ds<=0.0) break ;
             }                        
 #endif
-#ifdef HG_TEST
+#if (HG_TEST>0)
             // fraction = probability of scattering per solid angle
             float G = 0.65f, fraction ;
             fraction  =  (1.0f/(4.0f*PI)) * (1.0f-G*G) / pow(1.0f+G*G-2.0f*G*cos_theta, 1.5f) ;
@@ -1638,7 +1638,7 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
                if (ds<=0.0) break ;
             }                        
 # endif
-# ifdef HG_TEST
+# if (HG_TEST>0)
             // fraction = probability of scattering per solid angle
             float G = 0.65f, fraction ;
             fraction  =  (1.0f/(4.0f*PI)) * (1.0f-G*G) / pow(1.0f+G*G-2.0f*G*cos_theta, 1.5f) ;
@@ -1918,7 +1918,7 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
                   if (ds<=0.0) break ;
                }                        
 # endif
-# ifdef HG_TEST
+# if (HG_TEST>0)
                // fraction = probability of scattering per solid angle
                float G = 0.65f, fraction ;
                fraction  =  (1.0f/(4.0f*PI)) * (1.0f-G*G) / pow(1.0f+G*G-2.0f*G*cos_theta, 1.5f) ;
