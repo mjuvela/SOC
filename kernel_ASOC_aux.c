@@ -1,4 +1,4 @@
-#define HG_TEST 0
+#define HG_TEST 0  // test with fixed Henyey-Greenstein scattering function
 
 // #pragma OPENCL EXTENSION cl_khr_fp64 : enable
 
